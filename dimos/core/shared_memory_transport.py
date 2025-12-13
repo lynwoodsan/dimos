@@ -27,6 +27,9 @@ import numpy as np
 
 from dimos.core.transport import PubSubTransport
 from dimos.utils.ipc_factory import CPU_IPC_Factory  # CUDA imported lazily
+from dimos.utils.logging_config import setup_logger
+
+logger = setup_logger("dimos.core.shared_memory")
 
 
 class SharedMemoryImageTransport(PubSubTransport):
@@ -193,6 +196,7 @@ class SharedMemoryImageTransport(PubSubTransport):
         """
         # Basic fields
         topic = state.get("topic")
+        logger.info(f"__setstate__ core/shared_memory STATE: {state}")
         if topic is not None:
             # PubSubTransport likely stores topic in base __dict__
             try:

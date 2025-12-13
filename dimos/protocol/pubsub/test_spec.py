@@ -83,7 +83,6 @@ except (ConnectionError, ImportError):
     # either redis is not installed or the server is not running
     print("LCM not available")
 
-
 @pytest.mark.parametrize("pubsub_context, topic, values", testdata)
 def test_store(pubsub_context, topic, values):
     with pubsub_context() as x:

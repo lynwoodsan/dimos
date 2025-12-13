@@ -17,12 +17,28 @@
 import base64
 import time
 from abc import ABC, abstractmethod
+import os
 from typing import Optional, Tuple
 
 import numpy as np
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.managers import SharedMemoryManager
 
+_UNLINK_ON_GC = os.getenv("DIMOS_IPC_UNLINK_ON_GC", "0").lower() not in ("0","false","no")
+
+def _open_shm_with_retry(name: str) -> SharedMemory:
+    tries = int(os.getenv("DIMOS_IPC_ATTACH_RETRIES", "40"))          # ~40 tries
+    base_ms = float(os.getenv("DIMOS_IPC_ATTACH_BACKOFF_MS", "5"))     # 5 ms
+    cap_ms  = float(os.getenv("DIMOS_IPC_ATTACH_BACKOFF_CAP_MS", "200"))  # 200 ms
+    last = None
+    for i in range(tries):
+        try:
+            return SharedMemory(name=name)
+        except FileNotFoundError as e:
+            last = e
+            # exponential backoff, capped
+            time.sleep(min((base_ms * (2 ** i)), cap_ms) / 1000.0)
+    raise FileNotFoundError(f"SHM not found after {tries} retries: {name}") from last
 
 def _sanitize_shm_name(name: str) -> str:
     #  Python's SharedMemory expects names like 'psm_abc', without leading '/'
@@ -149,8 +165,8 @@ class CpuShmChannel(FrameChannel):
         self._ctrl[:] = 0
 
         # Owner-only finalizers (in case close() isn’t called)
-        self._finalizer_data = weakref.finalize(self, _safe_unlink, self._shm_data.name)
-        self._finalizer_ctrl = weakref.finalize(self, _safe_unlink, self._shm_ctrl.name)
+        self._finalizer_data = weakref.finalize(self, _safe_unlink, self._shm_data.name) if _UNLINK_ON_GC else None
+        self._finalizer_ctrl = weakref.finalize(self, _safe_unlink, self._shm_ctrl.name) if _UNLINK_ON_GC else None
 
     @property
     def device(self):
@@ -202,8 +218,8 @@ class CpuShmChannel(FrameChannel):
             "shape": self._shape,
             "dtype": self._dtype.str,
             "nbytes": self._nbytes,
-            "data_name": _sanitize_shm_name(self._shm_data.name),
-            "ctrl_name": _sanitize_shm_name(self._shm_ctrl.name),
+            "data_name": self._shm_data.name,
+            "ctrl_name": self._shm_ctrl.name,
         }
 
     @classmethod
@@ -212,11 +228,11 @@ class CpuShmChannel(FrameChannel):
         obj._shape = tuple(desc["shape"])
         obj._dtype = np.dtype(desc["dtype"])
         obj._nbytes = int(desc["nbytes"])
-        data_name = _sanitize_shm_name(desc["data_name"])
-        ctrl_name = _sanitize_shm_name(desc["ctrl_name"])
+        data_name = desc["data_name"]
+        ctrl_name = desc["ctrl_name"]
         try:
-            obj._shm_data = SharedMemory(name=data_name)
-            obj._shm_ctrl = SharedMemory(name=ctrl_name)
+            obj._shm_data = _open_shm_with_retry(data_name)
+            obj._shm_ctrl = _open_shm_with_retry(ctrl_name)
         except FileNotFoundError as e:
             raise FileNotFoundError(
                 f"CPU IPC attach failed: control/data SHM not found "
@@ -229,16 +245,24 @@ class CpuShmChannel(FrameChannel):
         return obj
 
     def close(self):
-        # Close our handles
-        self._shm_data.close()
-        self._shm_ctrl.close()
-        # Only the owner should unlink
-        if self._finalizer_data:
-            _safe_unlink(self._shm_data.name)
-            _safe_unlink(self._shm_ctrl.name)
-            self._finalizer_data.detach()
-            self._finalizer_ctrl.detach()
-
+        if getattr(self, "_is_owner", False):
+            try:
+                self._shm_ctrl.close()
+            finally:
+                try: _safe_unlink(self._shm_ctrl.name)
+                except: pass
+            if hasattr(self, "_shm_data"):
+                try:
+                    self._shm_data.close()
+                finally:
+                    try: _safe_unlink(self._shm_data.name)
+                    except: pass
+            return
+        # readers: just close handles
+        try: self._shm_ctrl.close()
+        except: pass
+        try: self._shm_data.close()
+        except: pass
 
 # ---------------------------
 # 3) CUDA IPC backend (CuPy)
@@ -271,7 +295,7 @@ class CudaIpcChannel(FrameChannel):
         self._shm_ctrl = SharedMemory(create=True, size=24)
         self._ctrl = np.ndarray((3,), dtype=np.int64, buffer=self._shm_ctrl.buf)
         self._ctrl[:] = 0
-        self._finalizer_ctrl = weakref.finalize(self, _safe_unlink, self._shm_ctrl.name)
+        self._finalizer_ctrl = weakref.finalize(self, _safe_unlink, self._shm_ctrl.name) if _UNLINK_ON_GC else None
 
         self._is_owner = True
         self._attached_desc = None
@@ -331,7 +355,7 @@ class CudaIpcChannel(FrameChannel):
     def descriptor(self) -> dict:
         if not getattr(self, "_is_owner", False):
             d = dict(self._attached_desc or {})
-            d["ctrl_name"] = _sanitize_shm_name(self._shm_ctrl.name)
+            d["ctrl_name"] = self._shm_ctrl.name
             return d
         if getattr(self, "_handles", None) is None:
             _ensure_cuda_context(self._cp, self._device)
@@ -348,7 +372,7 @@ class CudaIpcChannel(FrameChannel):
             "pci": pci,
             "pid": os.getpid(),
             "nbytes": self._nbytes,
-            "ctrl_name": _sanitize_shm_name(self._shm_ctrl.name),
+            "ctrl_name": self._shm_ctrl.name,
             "ptr0": int(self._bufs[0].data.ptr),
             "ptr1": int(self._bufs[1].data.ptr),
             "handle0": self._handles[0],
@@ -367,9 +391,10 @@ class CudaIpcChannel(FrameChannel):
         obj._is_owner = False
 
         # control shm
-        ctrl_name = _sanitize_shm_name(desc["ctrl_name"])
+        ctrl_name = desc["ctrl_name"]
+        max_retries = 10
         try:
-            obj._shm_ctrl = SharedMemory(name=ctrl_name)
+            obj._shm_ctrl = _open_shm_with_retry(ctrl_name)
         except FileNotFoundError as e:
             raise FileNotFoundError(
                 f"CUDA IPC attach failed: control SHM not found (ctrl='{ctrl_name}'). "
@@ -433,6 +458,60 @@ class CudaIpcChannel(FrameChannel):
         return obj
 
     def close(self) -> None:
+        """
+        CUDA channel close semantics:
+          - Reader: close imported IPC handles (if any) and the control SHM.
+          - Owner : close + explicitly unlink the control SHM; do NOT attempt to
+                    close any device pointers (owner never opened IPC handles).
+        """
+        # Reader path
+        if not getattr(self, "_is_owner", False):
+            try:
+                if getattr(self, "_using_ipc_handles", False):
+                    try:
+                        with self._cp.cuda.Device(self._device):
+                            for ptr in (getattr(self, "_ipc_ptrs", None) or []):
+                                try:
+                                    self._cp.cuda.runtime.ipcCloseMemHandle(ptr)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        # If device/context is already torn down, best-effort close above is enough.
+                        pass
+            finally:
+                try:
+                    self._shm_ctrl.close()
+                except Exception:
+                    pass
+            return
+
+        # Owner path (explicit unlink; don't rely on weakref finalizer)
+        try:
+            self._shm_ctrl.close()
+        finally:
+            try:
+                _safe_unlink(self._shm_ctrl.name)
+            except Exception:
+                pass
+            # Detach the finalizer so we don't double-unlink later
+            try:
+                if getattr(self, "_finalizer_ctrl", None):
+                    self._finalizer_ctrl.detach()
+            except Exception:
+                pass
+
+        # Optional: drop strong refs so CuPy can GC buffers/stream
+        try:
+            self._handles = None
+            self._ipc_ptrs = []
+            self._h2d_stream = None
+            self._bufs = [None, None]
+        except Exception:
+            pass
+
+
+    """
+    def close(self) -> None:
         try:
             self._shm_ctrl.close()
         except Exception:
@@ -450,6 +529,7 @@ class CudaIpcChannel(FrameChannel):
                     cp.cuda.runtime.ipcCloseMemHandle(ptr)
                 except Exception:
                     pass
+    """
 
 
 # ---------------------------
