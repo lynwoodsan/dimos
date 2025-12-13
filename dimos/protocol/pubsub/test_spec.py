@@ -104,7 +104,7 @@ try:
         (
             shared_memory_cpu_context,
             SHMTopic(topic="/shared_mem_topic_cpu"),
-            [b"shared_mem_value1", b"shared_mem_value2", b"shared_mem_value3"]
+            [b"shared_mem_value1", b"shared_mem_value2", b"shared_mem_value3"],
         )
     )
 
@@ -112,12 +112,13 @@ try:
         (
             shared_memory_cuda_context,
             SHMTopic(topic="/shared_mem_topic_cuda"),
-            [b"shared_mem_value1", b"shared_mem_value2", b"shared_mem_value3"]
+            [b"shared_mem_value1", b"shared_mem_value2", b"shared_mem_value3"],
         )
     )
 
 except (ConnectionError, ImportError):
     print("Shared Memory not available")
+
 
 @pytest.mark.parametrize("pubsub_context, topic, values", testdata)
 def test_store(pubsub_context, topic, values):

@@ -24,12 +24,13 @@ import numpy as np
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.managers import SharedMemoryManager
 
-_UNLINK_ON_GC = os.getenv("DIMOS_IPC_UNLINK_ON_GC", "0").lower() not in ("0","false","no")
+_UNLINK_ON_GC = os.getenv("DIMOS_IPC_UNLINK_ON_GC", "0").lower() not in ("0", "false", "no")
+
 
 def _open_shm_with_retry(name: str) -> SharedMemory:
-    tries = int(os.getenv("DIMOS_IPC_ATTACH_RETRIES", "40"))          # ~40 tries
-    base_ms = float(os.getenv("DIMOS_IPC_ATTACH_BACKOFF_MS", "5"))     # 5 ms
-    cap_ms  = float(os.getenv("DIMOS_IPC_ATTACH_BACKOFF_CAP_MS", "200"))  # 200 ms
+    tries = int(os.getenv("DIMOS_IPC_ATTACH_RETRIES", "40"))  # ~40 tries
+    base_ms = float(os.getenv("DIMOS_IPC_ATTACH_BACKOFF_MS", "5"))  # 5 ms
+    cap_ms = float(os.getenv("DIMOS_IPC_ATTACH_BACKOFF_CAP_MS", "200"))  # 200 ms
     last = None
     for i in range(tries):
         try:
@@ -37,8 +38,9 @@ def _open_shm_with_retry(name: str) -> SharedMemory:
         except FileNotFoundError as e:
             last = e
             # exponential backoff, capped
-            time.sleep(min((base_ms * (2 ** i)), cap_ms) / 1000.0)
+            time.sleep(min((base_ms * (2**i)), cap_ms) / 1000.0)
     raise FileNotFoundError(f"SHM not found after {tries} retries: {name}") from last
+
 
 def _sanitize_shm_name(name: str) -> str:
     #  Python's SharedMemory expects names like 'psm_abc', without leading '/'
@@ -165,8 +167,12 @@ class CpuShmChannel(FrameChannel):
         self._ctrl[:] = 0
 
         # Owner-only finalizers (in case close() isn’t called)
-        self._finalizer_data = weakref.finalize(self, _safe_unlink, self._shm_data.name) if _UNLINK_ON_GC else None
-        self._finalizer_ctrl = weakref.finalize(self, _safe_unlink, self._shm_ctrl.name) if _UNLINK_ON_GC else None
+        self._finalizer_data = (
+            weakref.finalize(self, _safe_unlink, self._shm_data.name) if _UNLINK_ON_GC else None
+        )
+        self._finalizer_ctrl = (
+            weakref.finalize(self, _safe_unlink, self._shm_ctrl.name) if _UNLINK_ON_GC else None
+        )
 
     @property
     def device(self):
@@ -249,20 +255,29 @@ class CpuShmChannel(FrameChannel):
             try:
                 self._shm_ctrl.close()
             finally:
-                try: _safe_unlink(self._shm_ctrl.name)
-                except: pass
+                try:
+                    _safe_unlink(self._shm_ctrl.name)
+                except:
+                    pass
             if hasattr(self, "_shm_data"):
                 try:
                     self._shm_data.close()
                 finally:
-                    try: _safe_unlink(self._shm_data.name)
-                    except: pass
+                    try:
+                        _safe_unlink(self._shm_data.name)
+                    except:
+                        pass
             return
         # readers: just close handles
-        try: self._shm_ctrl.close()
-        except: pass
-        try: self._shm_data.close()
-        except: pass
+        try:
+            self._shm_ctrl.close()
+        except:
+            pass
+        try:
+            self._shm_data.close()
+        except:
+            pass
+
 
 # ---------------------------
 # 3) CUDA IPC backend (CuPy)
@@ -295,7 +310,9 @@ class CudaIpcChannel(FrameChannel):
         self._shm_ctrl = SharedMemory(create=True, size=24)
         self._ctrl = np.ndarray((3,), dtype=np.int64, buffer=self._shm_ctrl.buf)
         self._ctrl[:] = 0
-        self._finalizer_ctrl = weakref.finalize(self, _safe_unlink, self._shm_ctrl.name) if _UNLINK_ON_GC else None
+        self._finalizer_ctrl = (
+            weakref.finalize(self, _safe_unlink, self._shm_ctrl.name) if _UNLINK_ON_GC else None
+        )
 
         self._is_owner = True
         self._attached_desc = None
@@ -470,7 +487,7 @@ class CudaIpcChannel(FrameChannel):
                 if getattr(self, "_using_ipc_handles", False):
                     try:
                         with self._cp.cuda.Device(self._device):
-                            for ptr in (getattr(self, "_ipc_ptrs", None) or []):
+                            for ptr in getattr(self, "_ipc_ptrs", None) or []:
                                 try:
                                     self._cp.cuda.runtime.ipcCloseMemHandle(ptr)
                                 except Exception:
@@ -508,7 +525,6 @@ class CudaIpcChannel(FrameChannel):
             self._bufs = [None, None]
         except Exception:
             pass
-
 
     """
     def close(self) -> None:

@@ -33,6 +33,7 @@ class SHMTopic:
     Simple topic wrapper to parallel LCM's Topic type.
     You can pass a plain string as well; __str__ handles both.
     """
+
     topic: str = ""
 
     def __str__(self) -> str:
@@ -108,8 +109,10 @@ class SharedMemoryPubSubBase(PubSub[str | SHMTopic, Any], SharedMemoryService):
 
 # ---- Encoders + concrete classes (parallel to LCM / PickleLCM) ------------
 
+
 class SharedMemoryBytesEncoderMixin(PubSubEncoderMixin[str | SHMTopic, bytes]):
     """Identity encoder for raw bytes over SharedMemory."""
+
     def encode(self, msg: bytes, _: str | SHMTopic) -> bytes:
         if isinstance(msg, (bytes, bytearray, memoryview)):
             return bytes(msg)
@@ -124,6 +127,7 @@ class SharedMemory(
     SharedMemoryPubSubBase,
 ):
     """SharedMemory pubsub that transports raw bytes."""
+
     ...
 
 
@@ -132,5 +136,5 @@ class PickleSharedMemory(
     SharedMemoryPubSubBase,
 ):
     """SharedMemory pubsub that transports arbitrary Python objects via pickle."""
-    ...
 
+    ...

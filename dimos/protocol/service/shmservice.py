@@ -1,3 +1,17 @@
+# Copyright 2025 Dimensional Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # dimos/protocol/service/shmservice.py
 from __future__ import annotations
 
@@ -20,7 +34,8 @@ logger = setup_logger("dimos.protocol.service.shmservice")
 @dataclass
 class SharedMemoryConfig:
     """Configuration for SharedMemoryService."""
-    prefer: str = "auto"           # "auto"|"cuda"|"cpu"
+
+    prefer: str = "auto"  # "auto"|"cuda"|"cpu"
     default_capacity: int = 64 * 1024
     close_channels_on_stop: bool = True
 
@@ -34,8 +49,20 @@ class SharedMemoryService(Service[SharedMemoryConfig]):
     """
 
     class _TopicState:
-        __slots__ = ("channel", "subs", "stop", "thread", "last_seq",
-                     "shape", "dtype", "capacity", "is_cuda", "cp", "last_local_payload")
+        __slots__ = (
+            "channel",
+            "subs",
+            "stop",
+            "thread",
+            "last_seq",
+            "shape",
+            "dtype",
+            "capacity",
+            "is_cuda",
+            "cp",
+            "last_local_payload",
+        )
+
         def __init__(self, channel, capacity: int, is_cuda: bool, cp_mod):
             self.channel = channel
             self.capacity = int(capacity)
@@ -97,7 +124,7 @@ class SharedMemoryService(Service[SharedMemoryConfig]):
         host = np.zeros(st.shape, dtype=st.dtype)
         host[:4] = np.frombuffer(struct.pack("<I", L), dtype=np.uint8)
         if L:
-            host[4:4 + L] = np.frombuffer(payload, dtype=np.uint8)
+            host[4 : 4 + L] = np.frombuffer(payload, dtype=np.uint8)
 
         if st.is_cuda:
             try:
@@ -117,7 +144,6 @@ class SharedMemoryService(Service[SharedMemoryConfig]):
         # mark so fanout can suppress the duplicate originating from this process
         st.last_local_payload = payload_bytes
 
-
     def subscribe(self, topic: str, callback: Callable[[bytes, str], None]) -> Callable[[], None]:
         st = self._ensure_topic(topic)
         st.subs.append(callback)
@@ -135,6 +161,7 @@ class SharedMemoryService(Service[SharedMemoryConfig]):
                 st.thread.join(timeout=0.5)
                 st.thread = None
                 st.stop.clear()
+
         return _unsub
 
     def reconfigure(self, topic: str, *, capacity: int) -> dict:
@@ -166,6 +193,7 @@ class SharedMemoryService(Service[SharedMemoryConfig]):
                 try:
                     import cupy as cp  # type: ignore
                     from dimos.utils.ipc_factory import CUDA_IPC_Factory
+
                     ch = CUDA_IPC_Factory.create(shape, dtype=dtype)
                     is_cuda = True
                     cp_mod = cp
@@ -174,7 +202,9 @@ class SharedMemoryService(Service[SharedMemoryConfig]):
             else:
                 ch = CPU_IPC_Factory.create(shape, dtype=dtype)
 
-            st = SharedMemoryService._TopicState(ch, int(self.config.default_capacity), is_cuda, cp_mod)
+            st = SharedMemoryService._TopicState(
+                ch, int(self.config.default_capacity), is_cuda, cp_mod
+            )
             self._topics[topic] = st
             return st
 
@@ -200,7 +230,7 @@ class SharedMemoryService(Service[SharedMemoryConfig]):
                     continue
                 if L < 0 or L > st.capacity:
                     continue
-                payload = host[4:4 + L].tobytes()
+                payload = host[4 : 4 + L].tobytes()
                 if st.last_local_payload is not None and payload == st.last_local_payload:
                     st.last_local_payload = None
                     continue
@@ -212,4 +242,3 @@ class SharedMemoryService(Service[SharedMemoryConfig]):
                     cb(payload, topic)
                 except Exception:
                     pass
-
