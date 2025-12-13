@@ -233,6 +233,7 @@ class UnitreeCameraModule(Module):
         logger.info("Main processing loop running")
         while not self._stop_processing.is_set():
             time.sleep(0.001)
+
         logger.info("Main processing loop stopped")
 
     def _process_depth(self, img_array: np.ndarray, meta=None):
