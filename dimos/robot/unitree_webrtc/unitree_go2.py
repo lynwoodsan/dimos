@@ -28,8 +28,8 @@ from dimos.msgs.std_msgs import Header
 from dimos.msgs.geometry_msgs import PoseStamped, Transform, Twist, Vector3, Quaternion
 from dimos.msgs.nav_msgs import OccupancyGrid, Path
 from dimos.msgs.sensor_msgs import Image
-from dimos_lcm.std_msgs import String
-from dimos_lcm.sensor_msgs import CameraInfo
+from dimos_lcm.std_msgs import String, Header as LcmHeader, Time
+from dimos_lcm.sensor_msgs import CameraInfo, BatteryState
 from dimos_lcm.vision_msgs import Detection2DArray, Detection3DArray
 from dimos.perception.spatial_perception import SpatialMemory
 from dimos.perception.common.utils import (
@@ -114,6 +114,67 @@ class FakeRTC:
         )
         return video_store.stream()
 
+    @functools.cache
+    def lowstate_stream(self):
+        """Generate fake low state data matching the actual Unitree format."""
+        print("lowstate stream start")
+        
+        def fake_lowstate_generator():
+            import time
+            import random
+            while True:
+                # Generate fake data matching LowStateMsg format
+                fake_lowstate = {
+                    "type": "msg",
+                    "topic": "rt/lf/lowstate",
+                    "data": {
+                        "imu_state": {
+                            "rpy": [
+                                random.uniform(-0.1, 0.1),  # roll
+                                random.uniform(-0.1, 0.1),  # pitch  
+                                random.uniform(0, 6.28)     # yaw
+                            ]
+                        },
+                        "motor_state": [
+                            {
+                                "q": random.uniform(-2, 2),
+                                "temperature": random.randint(30, 50),
+                                "lost": random.randint(0, 10),
+                                "reserve": [0, 674]
+                            } for _ in range(20)  # 20 motors (12 leg + extras)
+                        ],
+                        "bms_state": {
+                            "version_high": 1,
+                            "version_low": 18,
+                            "soc": random.randint(20, 100),  # Battery percentage
+                            "current": random.randint(-3000, -1000),  # Current in mA
+                            "cycle": 56,
+                            "bq_ntc": [30, 29],
+                            "mcu_ntc": [33, 32],
+                        },
+                        "foot_force": [
+                            random.randint(50, 150) for _ in range(4)  # 4 feet
+                        ],
+                        "temperature_ntc1": random.randint(40, 60),
+                        "power_v": random.uniform(24.0, 29.4),  # Battery voltage
+                    }
+                }
+                yield fake_lowstate
+                time.sleep(0.1)  # 10Hz rate
+
+        from reactivex import create
+        def subscribe(observer, scheduler):
+            gen = fake_lowstate_generator()
+            try:
+                for data in gen:
+                    observer.on_next(data)
+            except Exception as e:
+                observer.on_error(e)
+            finally:
+                observer.on_completed()
+
+        return create(subscribe)
+
     def move(self, twist: Twist, duration: float = 0.0):
         pass
 
@@ -131,6 +192,8 @@ class ConnectionModule(Module):
     video: Out[Image] = None
     camera_info: Out[CameraInfo] = None
     camera_pose: Out[PoseStamped] = None
+    lowstate: Out[String] = None
+    battery_state: Out[BatteryState] = None
     ip: str
     connection_type: str = "webrtc"
 
@@ -195,6 +258,50 @@ class ConnectionModule(Module):
         self.connection.lidar_stream().subscribe(self.lidar.publish)
         self.connection.odom_stream().subscribe(self._publish_tf)
         self.connection.video_stream().subscribe(self._on_video)
+        
+        # Subscribe to lowstate stream and convert to JSON string
+        import json
+        def publish_lowstate(data):
+            msg = String()
+            msg.data = json.dumps(data)
+            self.lowstate.publish(msg)
+            
+            # Extract battery data and publish to battery_state topic
+            if 'data' in data and 'bms_state' in data['data']:
+                bms = data['data']['bms_state']
+                
+                # Create proper timestamp
+                timestamp = Time()
+                current_time = time.time()
+                timestamp.sec = int(current_time)
+                timestamp.nsec = int((current_time - timestamp.sec) * 1e9)
+                
+                header = LcmHeader()
+                header.frame_id = "base_link"
+                header.stamp = timestamp
+                
+                battery = BatteryState(
+                    header=header,
+                    voltage=float(data['data'].get('power_v', 0.0)),
+                    current=float(bms.get('current', 0) / 1000.0),  # Convert mA to A
+                    charge=0.0,  # Not available in lowstate
+                    percentage=float(bms.get('soc', 0)),
+                    temperature=float(sum(bms.get('bq_ntc', [0, 0])) / 2.0),  # Average battery temps
+                    power_supply_status=BatteryState.POWER_SUPPLY_STATUS_DISCHARGING if bms.get('current', 0) < 0 else BatteryState.POWER_SUPPLY_STATUS_CHARGING,
+                    power_supply_health=BatteryState.POWER_SUPPLY_HEALTH_GOOD,
+                    power_supply_technology=BatteryState.POWER_SUPPLY_TECHNOLOGY_LIPO,
+                    present=True,
+                    capacity=0.0,  # Not available in lowstate
+                    design_capacity=0.0,  # Not available in lowstate
+                    cell_voltage=[],  # Not available in lowstate
+                    cell_temperature=[],  # Not available in lowstate
+                    location="robot_battery",
+                    serial_number=""
+                )
+                self.battery_state.publish(battery)
+        
+        self.connection.lowstate_stream().subscribe(publish_lowstate)
+        
         self.movecmd.subscribe(self.move)
 
     def _on_video(self, msg: Image):
@@ -393,6 +500,8 @@ class UnitreeGo2(Robot):
         self.connection.movecmd.transport = core.LCMTransport("/cmd_vel", Twist)
         self.connection.camera_info.transport = core.LCMTransport("/go2/camera_info", CameraInfo)
         self.connection.camera_pose.transport = core.LCMTransport("/go2/camera_pose", PoseStamped)
+        self.connection.lowstate.transport = core.LCMTransport("/go2/lowstate", String)
+        self.connection.battery_state.transport = core.LCMTransport("/go2/battery_state", BatteryState)
 
     def _deploy_mapping(self):
         """Deploy and configure the mapping module."""
