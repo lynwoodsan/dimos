@@ -252,9 +252,17 @@ class Image(Timestamped):
 
     @classmethod
     def from_numpy(
-        cls, np_image: np.ndarray, format: ImageFormat = ImageFormat.BGR, to_gpu: bool = False, **kwargs
+        cls,
+        np_image: np.ndarray,
+        format: ImageFormat = ImageFormat.BGR,
+        to_gpu: bool = False,
+        **kwargs,
     ) -> "Image":
-        return cls(data=np_image, format=format, **kwargs) if to_gpu == False else cls(data=cp.asarray(np_image), format=format, **kwargs)
+        return (
+            cls(data=np_image, format=format, **kwargs)
+            if to_gpu == False
+            else cls(data=cp.asarray(np_image), format=format, **kwargs)
+        )
 
     @classmethod
     def from_file(
@@ -651,10 +659,16 @@ class Image(Timestamped):
         return cls(bytes(mem), width=width, height=height, format=format)
 
     @classmethod
-    def from_cuda_ipc_handle(cls, handle, size, shape, dtype, width: int, height: int, format: "ImageFormat"):
+    def from_cuda_ipc_handle(
+        cls, handle, size, shape, dtype, width: int, height: int, format: "ImageFormat"
+    ):
         """Reconstruct an Image from a CUDA IPC handle."""
         ptr = cp.cuda.runtime.ipcOpenMemHandle(handle)
-        arr = cp.ndarray(shape=shape, dtype=dtype, memptr=cp.cuda.MemoryPointer(cp.cuda.UnownedMemory(ptr, size, None), 0))
+        arr = cp.ndarray(
+            shape=shape,
+            dtype=dtype,
+            memptr=cp.cuda.MemoryPointer(cp.cuda.UnownedMemory(ptr, size, None), 0),
+        )
         return cls(arr, width=width, height=height, format=format)
 
     def as_cuda_ipc_bytes(self) -> bytes:
@@ -676,7 +690,7 @@ class Image(Timestamped):
         arr = cp.ndarray(
             shape=obj["shape"],
             dtype=np.dtype(obj["dtype"]),
-            memptr=cp.cuda.MemoryPointer(cp.cuda.UnownedMemory(ptr, obj["size"], None), 0)
+            memptr=cp.cuda.MemoryPointer(cp.cuda.UnownedMemory(ptr, obj["size"], None), 0),
         )
         return cls(arr, width=width, height=height, format=format)
 

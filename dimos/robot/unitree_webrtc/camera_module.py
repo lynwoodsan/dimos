@@ -256,7 +256,12 @@ class UnitreeCameraModule(Module):
             frame_start = time.time()
             logger.info(f"Frame PROCESS START {frame_start:.6f}")
 
-            depth_array = self.metric3d.infer_depth(cp.asarray(img_array) if self.backend == "cuda" else img_array) / self.gt_depth_scale
+            depth_array = (
+                self.metric3d.infer_depth(
+                    cp.asarray(img_array) if self.backend == "cuda" else img_array
+                )
+                / self.gt_depth_scale
+            )
             self._last_depth = depth_array
 
             logger.info(f"Frame PROCESS END {time.time():.6f}")
@@ -311,10 +316,14 @@ class UnitreeCameraModule(Module):
                     ts=header.ts,
                 )
                 logger.info(f"Depth MSG is CUDA? {depth_msg.is_cuda}")
-                self.depth_image.publish(depth_msg.as_cuda_ipc_bytes() if depth_msg.is_cuda else depth_msg.as_memoryview())
+                self.depth_image.publish(
+                    depth_msg.as_cuda_ipc_bytes()
+                    if depth_msg.is_cuda
+                    else depth_msg.as_memoryview()
+                )
                 depth_end = time.perf_counter()
                 logger.info(f"Depth publish: {(depth_end - publish_start) * 1000:.1f}ms")
-                
+
                 """
                 depth_colorized_array = colorize_depth(
                     cp.asnumpy(self._last_depth) if self.backend == "cuda" else self._last_depth, max_depth=10.0, overlay_stats=True

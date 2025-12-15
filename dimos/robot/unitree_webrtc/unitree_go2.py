@@ -438,11 +438,11 @@ class UnitreeGo2(Robot):
         )
 
         self.camera_module.depth_image.transport = core.SHMTransport(
-            "/go2/depth_image", default_capacity=720*1280*4
+            "/go2/depth_image", default_capacity=720 * 1280 * 4
         )
 
         self.camera_module.color_image.transport = core.SHMTransport(
-            "/go2/color_image", default_capacity=720*1080*3
+            "/go2/color_image", default_capacity=720 * 1080 * 3
         )
 
         # Set up transports

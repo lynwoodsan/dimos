@@ -77,9 +77,7 @@ def main():
     logger.info("Starting Unitree Go2 Robot with Agent")
 
     # Create robot instance
-    robot = UnitreeGo2(
-        ip=os.getenv("ROBOT_IP")
-    )
+    robot = UnitreeGo2(ip=os.getenv("ROBOT_IP"))
 
     robot.start()
     time.sleep(3)

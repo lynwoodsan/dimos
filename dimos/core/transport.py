@@ -106,6 +106,7 @@ class LCMTransport(PubSubTransport[T]):
             self._started = True
         return self.lcm.subscribe(self.topic, lambda msg, topic: callback(msg))
 
+
 class SHMTransport(PubSubTransport[T]):
     _started: bool = False
 
@@ -128,6 +129,7 @@ class SHMTransport(PubSubTransport[T]):
             self.shm.start()
             self._started = True
         return self.shm.subscribe(self.topic, lambda msg, topic: callback(msg))
+
 
 class DaskTransport(Transport[T]):
     subscribers: List[Callable[[T], None]]
