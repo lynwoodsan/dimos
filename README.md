@@ -69,10 +69,23 @@ source venv/bin/activate
 
 sudo apt install portaudio19-dev python3-pyaudio
 
+# Install system-level dependencies (Ubuntu/Debian)
+sudo apt-get install \
+    cuda-12-9 \
+    cuda-toolkit-12-9 \
+    cuda-libraries-12-9 \
+    libcudnn9-cuda-12 \
+    tensorrt-dev \
+    tensorrt-libs \
+    python3-libnvinfer
+
 # Install torch and torchvision if not already installed
-# Example CUDA 11.7, Pytorch 2.0.1 (replace with your required pytorch version if different)
-pip install torch==2.0.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# Install PyTorch with CUDA 12.9 support
+pip install torch==2.8.0+cu129 torchvision==0.23.0+cu129 torchaudio==2.6.0+cu129 \
+    --extra-index-url https://download.pytorch.org/whl/cu129
 ```
+
+Requires NVIDIA driver ≥ 575 (compatible with CUDA 12.9). CuPy currently only supports CUDA up to 12.9.
 
 #### Install dependencies
 ```bash

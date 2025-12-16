@@ -22,13 +22,12 @@ import os
 logger = logging.getLogger(__name__)
 
 try:
-	cv2.setNumThreads(int(os.getenv("CV_THREADS", "1")))
-except Exception:
-	pass
-
-try:
     import cupy as cp
     HAS_GPU = True
+    """
+    This isn't a floater. `mempool` keeps a permanent memory pool at a Metric3D level,
+    due to an internal driver issue
+    """
     mempool = cp.cuda.MemoryPool()
     cp.cuda.set_allocator(mempool.malloc)
 except ImportError:

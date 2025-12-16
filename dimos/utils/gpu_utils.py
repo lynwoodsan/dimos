@@ -12,13 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 def is_cuda_available():
     try:
-        import pycuda.driver as cuda
-        import pycuda.autoinit  # implicitly initializes the CUDA driver
-
-        cuda.init()
-        return cuda.Device.count() > 0
+        import cupy as cp
+        n_devices = cp.cuda.runtime.getDeviceCount()
+        return n_devices > 0
     except Exception:
         return False
+

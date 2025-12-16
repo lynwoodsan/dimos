@@ -75,7 +75,7 @@ class ImageEmbeddingProvider:
                 tensorrt_opts = {
                     "device_id": 0,
                     # Memory/tactics
-                    "trt_max_workspace_size": 600 * 1024**2,  # 512MB
+                    "trt_max_workspace_size": 600 * 1024**2,  # 600MB
                     "trt_builder_optimization_level": 5,  # 0..5, higher = more aggressive build/tactics
                     "trt_auxiliary_streams": 0,  # small benefit on some nets; keep modest on Nano
                     # Precision
@@ -111,7 +111,6 @@ class ImageEmbeddingProvider:
                     ("CUDAExecutionProvider", cuda_opts),
                     "CPUExecutionProvider",
                 ]
-                # providers = [("CUDAExecutionProvider", cuda_opts), "CPUExecutionProvider"]
 
                 self.model = ort.InferenceSession(str(model_id), providers=providers)
 
