@@ -202,6 +202,15 @@ class FTPullModule(Module):
         self.total_pull_distance = 0.0
         self.motion_count = 0
         self.last_rotation_direction = 0
+        self.last_motion_time = time.time()
+        self.visualizations_created = False
+
+        # Clear any existing meshcat visualizations
+        if self.meshcat:
+            try:
+                self.meshcat.Delete("target_pose")
+            except:
+                pass
 
         # 4. Re-subscribe to streams
         if self.force:
@@ -240,6 +249,46 @@ class FTPullModule(Module):
 
         logger.info("Module reset complete")
         return "Module reset complete"
+
+    @rpc
+    def stop(self):
+        """Stop the module completely - close all threads and subscriptions."""
+        logger.info("Stopping FT Pull module")
+
+        # 1. Stop any ongoing operations
+        self.stop_requested = True
+        self.running = False
+
+        # 2. Dispose of subscriptions
+        if self._force_subscription:
+            self._force_subscription.dispose()
+            self._force_subscription = None
+            logger.info("Disposed force subscription")
+
+        if self._torque_subscription:
+            self._torque_subscription.dispose()
+            self._torque_subscription = None
+            logger.info("Disposed torque subscription")
+
+        # 3. Disconnect from xARM
+        if self.arm:
+            try:
+                self.arm.disconnect()
+                self.arm = None
+                logger.info("Disconnected from xARM")
+            except Exception as e:
+                logger.error(f"Error disconnecting xARM: {e}")
+
+        # 4. Clear meshcat visualizations
+        if self.meshcat:
+            try:
+                self.meshcat.Delete()
+                logger.info("Cleared meshcat visualizations")
+            except Exception as e:
+                logger.error(f"Error clearing meshcat: {e}")
+
+        logger.info("Module stopped successfully")
+        return "Module stopped"
 
     def handle_force(self, msg: Vector3):
         """Handle incoming force data."""
