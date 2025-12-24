@@ -30,7 +30,6 @@ from dimos.robot.robot import UnitreeRobot
 from dimos.types.robot_location import RobotLocation
 from dimos.utils.logging_config import setup_logger
 from dimos.utils.transform_utils import euler_to_quaternion, quaternion_to_euler
-from dimos.navigation.bt_navigator.navigator import NavigatorState
 
 logger = setup_logger(__file__)
 
@@ -112,11 +111,11 @@ class NavigationSkillContainer(SkillContainer, Resource):
         if not self._started:
             raise ValueError(f"{self} has not been started.")
 
-        success_msg = self._navigate_by_tagged_location(query)
-        if success_msg:
-            return success_msg
+        # success_msg = self._navigate_by_tagged_location(query)
+        # if success_msg:
+        #     return success_msg
 
-        logger.info(f"No tagged location found for {query}")
+        # logger.info(f"No tagged location found for {query}")
 
         success_msg = self._navigate_to_object(query)
         if success_msg:
@@ -162,41 +161,38 @@ class NavigationSkillContainer(SkillContainer, Resource):
 
         logger.info(f"Found {query} at {bbox}")
 
-        # Start tracking - BBoxNavigationModule automatically generates goals
+        # Start tracking - ObjectTracker2D publishes Detection2DArray
         self._robot.object_tracker.track(bbox)
+
+        # Start object following tracker to handle navigation
+        self._robot.object_following_tracker.start_tracking(continuous=False)
 
         start_time = time.time()
         timeout = 30.0
-        goal_set = False
 
-        while time.time() - start_time < timeout:
-            # Check if navigator finished
-            if self._robot.navigator.get_state() == NavigatorState.IDLE and goal_set:
-                logger.info("Waiting for goal result")
-                time.sleep(1.0)
-                if not self._robot.navigator.is_goal_reached():
-                    logger.info(f"Goal cancelled, tracking '{query}' failed")
-                    self._robot.object_tracker.stop_track()
+        try:
+            while time.time() - start_time < timeout:
+                # Check if object tracking is still active
+                if not self._robot.object_tracker.is_tracking():
+                    logger.info(f"Lost tracking of '{query}'")
                     return None
-                else:
+
+                # Check if object following tracker stopped (reached the object)
+                if not self._robot.object_following_tracker.is_tracking():
                     logger.info(f"Reached '{query}'")
-                    self._robot.object_tracker.stop_track()
-                    return f"Successfully arrived at '{query}'"
+                    return f"Successfully reached '{query}'"
 
-            # If goal set and tracking lost, just continue (tracker will resume or timeout)
-            if goal_set and not self._robot.object_tracker.is_tracking():
-                continue
+                # Continue tracking until timeout or arrival
+                time.sleep(0.25)
 
-            # BBoxNavigationModule automatically sends goals when tracker publishes
-            # Just check if we have any detections to mark goal_set
-            if self._robot.object_tracker.is_tracking():
-                goal_set = True
+            # Timeout reached while still tracking
+            logger.info(f"Navigation to '{query}' timed out after {timeout}s")
+            return f"Followed '{query}' for {timeout} seconds but didn't reach it"
 
-            time.sleep(0.25)
-
-        logger.warning(f"Navigation to '{query}' timed out after {timeout}s")
-        self._robot.object_tracker.stop_track()
-        return None
+        finally:
+            # Stop tracking
+            self._robot.object_tracker.stop_track()
+            self._robot.object_following_tracker.stop_tracking()
 
     def _get_bbox_for_current_frame(self, query: str) -> Optional[BBox]:
         if self._latest_image is None:

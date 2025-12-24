@@ -21,7 +21,7 @@ import logging
 
 from dimos.core import In, Out, Module, rpc
 from dimos.msgs.std_msgs import Header
-from dimos.msgs.sensor_msgs import Image, ImageFormat
+from dimos.msgs.sensor_msgs import Image, ImageFormat, CameraInfo
 from dimos.msgs.vision_msgs import Detection2DArray
 from dimos.utils.logging_config import setup_logger
 from reactivex.disposable import Disposable
@@ -49,17 +49,23 @@ class ObjectTracker2D(Module):
 
     def __init__(
         self,
+        camera_info: CameraInfo,
         frame_id: str = "camera_link",
+        enable_visualization: bool = True,
     ):
         """
         Initialize 2D object tracking module using OpenCV's CSRT tracker.
 
         Args:
-            frame_id: TF frame ID for the camera (default: "camera_link")
+            camera_info: Camera calibration information
+            frame_id: Frame ID for the camera (default: "camera_link")
+            enable_visualization: Whether to publish visualization overlay (default: True)
         """
         super().__init__()
 
+        self.camera_info = camera_info
         self.frame_id = frame_id
+        self.enable_visualization = enable_visualization
 
         # Tracker state
         self.tracker = None
@@ -69,7 +75,7 @@ class ObjectTracker2D(Module):
         # Stuck detection
         self._last_bbox = None
         self._stuck_count = 0
-        self._max_stuck_frames = 10  # Higher threshold for stationary objects
+        self._max_stuck_frames = 30  # 6 seconds at 5Hz before considering stuck
 
         # Frame management
         self._frame_lock = threading.Lock()
@@ -79,7 +85,7 @@ class ObjectTracker2D(Module):
         # Tracking thread control
         self.tracking_thread: Optional[threading.Thread] = None
         self.stop_tracking_event = threading.Event()
-        self.tracking_rate = 5.0  # Hz
+        self.tracking_rate = 1.0  # Hz - balanced for CSRT performance
         self.tracking_period = 1.0 / self.tracking_rate
 
         # Store latest detection for RPC access
@@ -90,14 +96,16 @@ class ObjectTracker2D(Module):
         super().start()
 
         def on_frame(frame_msg: Image):
-            arrival_time = time.perf_counter()
+            # Use actual frame timestamp, not perf_counter!
+            arrival_time = frame_msg.ts if frame_msg.ts else time.time()
             with self._frame_lock:
                 self._latest_rgb_frame = frame_msg.data
                 self._frame_arrival_time = arrival_time
+            logger.debug(f"Frame received with arrival_time={arrival_time:.3f} (Unix timestamp)")
 
         unsub = self.color_image.subscribe(on_frame)
         self._disposables.add(Disposable(unsub))
-        logger.info("ObjectTracker2D module started")
+        logger.info(f"ObjectTracker2D started ({self.camera_info.width}x{self.camera_info.height})")
 
     @rpc
     def stop(self) -> None:
@@ -119,6 +127,8 @@ class ObjectTracker2D(Module):
         Returns:
             Dict containing tracking status
         """
+        logger.debug(f"track() called with bbox: {bbox}")
+
         if self._latest_rgb_frame is None:
             logger.warning("No RGB frame available for tracking")
             return {"status": "no_frame"}
@@ -131,13 +141,14 @@ class ObjectTracker2D(Module):
             return {"status": "invalid_bbox"}
 
         self.tracking_bbox = (x1, y1, w, h)
-        self.tracker = cv2.legacy.TrackerCSRT_create()
+        self.tracker = cv2.legacy.TrackerCSRT_create()  # CSRT is more robust
         self.tracking_initialized = False
         logger.info(f"Tracking target set with bbox: {self.tracking_bbox}")
 
-        # Convert RGB to BGR for CSRT (OpenCV expects BGR)
+        # Convert RGB to BGR for tracker (OpenCV expects BGR)
         frame_bgr = cv2.cvtColor(self._latest_rgb_frame, cv2.COLOR_RGB2BGR)
         init_success = self.tracker.init(frame_bgr, self.tracking_bbox)
+
         if init_success:
             self.tracking_initialized = True
             logger.info("Tracker initialized successfully.")
@@ -160,10 +171,11 @@ class ObjectTracker2D(Module):
 
     def _tracking_loop(self):
         """Main tracking loop that runs in a separate thread."""
+        logger.debug(f"Tracking loop started, rate={self.tracking_rate}Hz")
         while not self.stop_tracking_event.is_set() and self.tracking_initialized:
             self._process_tracking()
             time.sleep(self.tracking_period)
-        logger.info("Tracking loop ended")
+        logger.debug("Tracking loop ended")
 
     def _reset_tracking_state(self):
         """Reset tracking state without stopping the thread."""
@@ -217,15 +229,23 @@ class ObjectTracker2D(Module):
         if self.tracker is None or not self.tracking_initialized:
             return
 
-        # Get frame copy
+        # Get frame reference (only copy if we need visualization)
         with self._frame_lock:
             if self._latest_rgb_frame is None:
                 return
-            frame = self._latest_rgb_frame.copy()
+            frame_rgb = self._latest_rgb_frame  # Use reference, not copy
+            frame_timestamp = self._frame_arrival_time
+            logger.debug(f"Processing frame with arrival time: {frame_timestamp}")
 
-        # Convert RGB to BGR for CSRT (OpenCV expects BGR)
-        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        # Convert RGB to BGR for tracker (OpenCV expects BGR)
+        frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
 
+        # Safety check for tracker
+        if self.tracker is None:
+            logger.warning("Tracker became None during processing, skipping")
+            return
+
+        # Update tracker
         tracker_succeeded, bbox_cv = self.tracker.update(frame_bgr)
 
         if not tracker_succeeded:
@@ -280,20 +300,29 @@ class ObjectTracker2D(Module):
             detections_length=1, header=header, detections=[detection_2d]
         )
 
-        # Store and publish
+        # Store and publish detection
         self._latest_detection2d = detection2darray
         self.detection2darray.publish(detection2darray)
+        logger.debug(
+            f"Published detection2d for tracked object at ({center_x:.1f}, {center_y:.1f})"
+        )
 
-        # Create visualization
-        viz_image = self._draw_visualization(frame, current_bbox_x1y1x2y2)
-        viz_copy = viz_image.copy()  # Force copy needed to prevent frame reuse
-        viz_msg = Image.from_numpy(viz_copy, format=ImageFormat.RGB)
-        self.tracked_overlay.publish(viz_msg)
+        # Only create visualization if enabled
+        if self.enable_visualization:
+            # Only copy frame now for visualization
+            frame_copy = frame_rgb.copy()
+            # Convert to BGR for OpenCV drawing
+            frame_bgr_viz = cv2.cvtColor(frame_copy, cv2.COLOR_RGB2BGR)
+            viz_image_bgr = self._draw_visualization(frame_bgr_viz, current_bbox_x1y1x2y2)
+            # Convert back to RGB for publishing
+            viz_image_rgb = cv2.cvtColor(viz_image_bgr, cv2.COLOR_BGR2RGB)
+            viz_msg = Image.from_numpy(viz_image_rgb, format=ImageFormat.RGB)
+            self.tracked_overlay.publish(viz_msg)
+            logger.debug(f"Published tracked overlay with bbox {current_bbox_x1y1x2y2}")
 
     def _draw_visualization(self, image: np.ndarray, bbox: List[int]) -> np.ndarray:
-        """Draw tracking visualization."""
-        viz_image = image.copy()
+        """Draw tracking visualization directly on the image."""
         x1, y1, x2, y2 = bbox
-        cv2.rectangle(viz_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(viz_image, "TRACKING", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        return viz_image
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(image, "TRACKING", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        return image

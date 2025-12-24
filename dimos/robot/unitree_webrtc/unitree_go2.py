@@ -30,6 +30,7 @@ from dimos.constants import DEFAULT_CAPACITY_COLOR_IMAGE
 from dimos.core import In, Module, Out, rpc
 from dimos.core.dimos import Dimos
 from dimos.core.resource import Resource
+from dimos.agents2 import skill, Output
 from dimos.mapping.types import LatLon
 from dimos.msgs.std_msgs import Header
 from dimos.msgs.geometry_msgs import PoseStamped, Transform, Twist, Vector3, Quaternion
@@ -67,7 +68,6 @@ from dimos.utils.testing import TimedSensorReplay
 from dimos.perception.object_tracker_2d import ObjectTracker2D
 from dimos.perception.detection.module2D import Detection2DModule
 from dimos.perception.detection.person_tracker import PersonTracker
-from dimos.navigation.bbox_navigation import BBoxNavigationModule
 from dimos_lcm.std_msgs import Bool
 from dimos.robot.robot import UnitreeRobot
 from dimos.types.robot_capabilities import RobotCapability
@@ -325,6 +325,11 @@ class ConnectionModule(Module):
         """
         return self.connection.publish_request(topic, data)
 
+    @skill(output=Output.image)
+    def capture_frame(self) -> Image:
+        """Capture a single frame from the video stream."""
+        return self._last_image
+
     @classmethod
     def _camera_info(cls) -> CameraInfo:
         """Return static camera info for module deployment.
@@ -420,6 +425,7 @@ class UnitreeGo2(UnitreeRobot, Resource):
         self.object_tracker = None
         self.detection_module = None
         self.person_tracker = None
+        self.object_following_tracker = None
         self.utilization_module = None
 
         self._setup_directories()
@@ -582,15 +588,16 @@ class UnitreeGo2(UnitreeRobot, Resource):
 
         logger.info("Spatial memory module deployed and connected")
 
-        # Deploy 2D object tracker
+        # Deploy 2D object tracker (outputs Detection2DArray for PersonTracker)
         self.object_tracker = self._dimos.deploy(
             ObjectTracker2D,
+            camera_info=ConnectionModule._camera_info(),
             frame_id="camera_link",
         )
 
         # Deploy Detection2DModule for continuous person detection
         self.detection_module = self._dimos.deploy(
-            Detection2DModule, camera_info=ConnectionModule._camera_info(), max_freq=5
+            Detection2DModule, camera_info=ConnectionModule._camera_info(), max_freq=2
         )
 
         # Deploy PersonTracker for person following
@@ -599,9 +606,11 @@ class UnitreeGo2(UnitreeRobot, Resource):
             cameraInfo=ConnectionModule._camera_info(),
         )
 
-        self.bbox_navigator = None
-        # Deploy bbox navigation module
-        # self.bbox_navigator = self.dimos.deploy(BBoxNavigationModule, goal_distance=1.0)
+        # Deploy a second PersonTracker for object following (reuses same logic)
+        self.object_following_tracker = self._dimos.deploy(
+            PersonTracker,
+            cameraInfo=ConnectionModule._camera_info(),
+        )
 
         # self.utilization_module = self.dimos.deploy(UtilizationModule)
 
@@ -633,10 +642,12 @@ class UnitreeGo2(UnitreeRobot, Resource):
         # Set up transports for person tracker
         self.person_tracker.target.transport = core.LCMTransport("/person_path", Path)
 
-        # Set up transports for bbox navigator
-        # self.bbox_navigator.goal_request.transport = core.LCMTransport("/goal_request", PoseStamped)
+        # Set up transports for object following tracker
+        self.object_following_tracker.target.transport = core.LCMTransport("/object_path", Path)
 
-        logger.info("Object tracker, detection module, person tracker deployed")
+        logger.info(
+            "Object tracker, detection module, person tracker, object following tracker deployed"
+        )
 
     def _deploy_camera(self):
         """Deploy and configure the camera module."""
@@ -657,12 +668,12 @@ class UnitreeGo2(UnitreeRobot, Resource):
             self.person_tracker.target.connect(self.local_planner.path)
             logger.info("Person tracker connected to detection module and local planner")
 
-        # Connect bbox navigator inputs
-        if self.bbox_navigator:
-            self.bbox_navigator.detection2d.connect(self.object_tracker.detection2darray)
-            self.bbox_navigator.camera_info.connect(self.connection.camera_info)
-            self.bbox_navigator.goal_request.connect(self.navigator.goal_request)
-            logger.info("BBox navigator connected")
+        # Connect object following tracker inputs
+        if self.object_following_tracker:
+            self.object_following_tracker.image.connect(self.connection.color_image)
+            self.object_following_tracker.detections.connect(self.object_tracker.detection2darray)
+            self.object_following_tracker.target.connect(self.local_planner.path)
+            logger.info("Object following tracker connected to object tracker and local planner")
 
     def _start_modules(self):
         """Start all deployed modules in the correct order."""
