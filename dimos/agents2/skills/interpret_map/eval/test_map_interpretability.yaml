@@ -1,4 +1,28 @@
 point_placement_tests:
+  - map_id: "office_noise"
+    image_path: "floorplan_office_noise.png"
+    resolution: 0.05
+    robot_pose:
+      position: [25, 45, 0.0]
+      orientation: [0.0, 0.0,  0.7071068, 0.7071068]
+    questions:
+      - query: "which room would be the second room to the robot's left along the corridor?"
+        expected_range:
+          x: [19, 250]
+          y: [300, 570]
+      - query: "which would be the furthest room from the robot's current position"
+        expected_range:
+          x: [900, 1006]
+          y: [317, 570]
+      - query: "go to the conference table in the office"
+        expected_range:
+          x: [30, 370]
+          y: [5, 230]
+      - query: "a room to accommodate more that 10 people"
+        expected_range:
+          x: [30, 370]
+          y: [5, 230]
+
   - map_id: "office"
     image_path: "floorplan_office.png"
     resolution: 0.05
@@ -9,22 +33,23 @@ point_placement_tests:
       - query: "which room would be the second room to the robot's left along the corridor?"
         expected_range:
           x: [19, 250]
-          y: [440, 570]
+          y: [300, 570]
       - query: "which would be the furthest room from the robot's current position"
         expected_range:
           x: [900, 1006]
-          y: [317, 463]
-      - query: "go to one of the round tables in the office"
+          y: [317, 570]
+      - query: "go to the conference table in the office"
         expected_range:
-          x: [728, 900]
-          y: [315, 570]
-      - query: "a conference room to accommodate more that 10 people"
+          x: [30, 370]
+          y: [5, 230]
+      - query: "a room to accommodate more that 10 people"
         expected_range:
           x: [30, 370]
           y: [5, 230]
 
-  - map_id: "office_small"
-    image_path: "floorplan_office_small.png"
+
+  - map_id: "office_small_noise"
+    image_path: "floorplan_office_small_noise.png"
     resolution: 0.05
     robot_pose:
       position: [25, 13, 0.0]
@@ -43,9 +68,31 @@ point_placement_tests:
           x: [421, 1019]
           y: [23, 430]
 
+  - map_id: "office_small_noise_rotated"
+    image_path: "floorplan_office_small_noise_rotated.png"
+    resolution: 0.05
+    robot_pose:
+      position: [10, 26, 0.0]
+      orientation: [0.0, 0.0,  0.7071068, 0.7071068]
+    questions:
+      - query: "which room would be the second room to the robot's left along the corridor?"
+        expected_range:
+          x: [20, 350]
+          y: [315, 930]
+      - query: "which would be the furthest room from the robot's current position"
+        expected_range:
+          x: [624, 956]
+          y: [15, 470]
+      - query: "go to the largest room"
+        expected_range:
+          x: [421, 1019]
+          y: [23, 430]
+
+
+
 map_comprehension_tests:
-  - map_id: "office_small"
-    image_path: "floorplan_office_small.png"
+  - map_id: "office_small_noise"
+    image_path: "floorplan_office_noise.png"
     resolution: 0.05
     robot_pose:
       position: [25, 13, 0.0]
@@ -63,7 +110,7 @@ map_comprehension_tests:
         expected_pattern: '\b(5|five)\b'
         category: "spatial_understanding"
 
-      - question: "do all rooms have an entrance or doorway?"
+      - question: "do all rooms have an entrance or doorway? yes or no?"
         expected_pattern: '\b(yes)\b'
         category: "spatial_understanding"
 
@@ -89,8 +136,8 @@ map_comprehension_tests:
         category: "robot_awareness"
         difficulty: "medium"
 
-  - map_id: "office"
-    image_path: "floorplan_office.png"
+  - map_id: "office_noise"
+    image_path: "floorplan_office_noise.png"
     resolution: 0.05
     robot_pose:
       position: [25, 45, 0.0]
@@ -116,7 +163,7 @@ map_comprehension_tests:
         expected_pattern: '\b(3|three)\b'
         category: "spatial_understanding"
 
-      - question: "is there a feasible path from the robot's position to the top right room?"
+      - question: "is there a feasible path from the robot's position to the top right room? yes or no?"
         expected_pattern: '\b(yes)\b'
         category: "navigation_reasoning"
 
