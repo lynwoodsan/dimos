@@ -35,6 +35,7 @@ from dimos.msgs.std_msgs import Header
 from dimos.perception.detection.type.detection2d import ImageDetections2D
 from dimos.perception.detection.type.detection2d.seg import Detection2DSeg
 from dimos.perception.detection.type.detection3d.base import Detection3D
+from dimos.perception.detection.type.detection3d.imageDetections3DPC import ImageDetections3DPC
 from dimos.perception.detection.type.detection3d.pointcloud_filters import (
     PointCloudFilter,
     radius_outlier,
@@ -240,27 +241,36 @@ class Detection3DPC(Detection3D):
         color_image: Image,
         depth_image: Image,
         camera_info: CameraInfo,
-        filters: list[PointCloudFilter] | None = None,
+        depth_scale: float = 1.0,
+        depth_trunc: float = 10.0,
+        statistical_nb_neighbors: int = 10,
+        statistical_std_ratio: float = 0.5,
     ) -> ImageDetections3DPC:
-        """Create 3D pointcloud detections from 2D detections and RGBD images."""
-        from dimos.perception.detection.type.detection3d.imageDetections3DPC import ImageDetections3DPC
-        
-        if filters is None:
-            filters = [
-                radius_outlier(min_neighbors=5, radius=0.1),
-                statistical(nb_neighbors=20, std_ratio=0.5),
-            ]
+        """Create 3D pointcloud detections from 2D detections and RGBD images.
 
+        Uses Open3D's optimized RGBD projection for efficient processing.
+
+        Args:
+            detections_2d: 2D detections with segmentation masks
+            color_image: RGB color image
+            depth_image: Depth image (in meters if depth_scale=1.0)
+            camera_info: Camera intrinsics
+            depth_scale: Scale factor for depth (1.0 for meters, 1000.0 for mm)
+            depth_trunc: Maximum depth value in meters
+            statistical_nb_neighbors: Neighbors for statistical outlier removal
+            statistical_std_ratio: Std ratio for statistical outlier removal
+        """
         color_cv = color_image.to_opencv()
         if color_cv.ndim == 3 and color_cv.shape[2] == 3:
             color_cv = cv2.cvtColor(color_cv, cv2.COLOR_BGR2RGB)
 
         depth_cv = depth_image.to_opencv()
+        h, w = depth_cv.shape[:2]
 
-        fx = camera_info.K[0]
-        fy = camera_info.K[4]
-        cx = camera_info.K[2]
-        cy = camera_info.K[5]
+        # Build Open3D camera intrinsics
+        fx, fy = camera_info.K[0], camera_info.K[4]
+        cx, cy = camera_info.K[2], camera_info.K[5]
+        intrinsic_o3d = o3d.camera.PinholeCameraIntrinsic(w, h, fx, fy, cx, cy)
 
         identity_transform = Transform(
             translation=Vector3(0.0, 0.0, 0.0),
@@ -273,56 +283,48 @@ class Detection3DPC(Detection3D):
         detections_3d = []
 
         for det in detections_2d.detections:
+            # Get mask (from segmentation or bbox)
             if isinstance(det, Detection2DSeg):
                 mask = det.mask
             else:
-                mask = np.zeros(depth_cv.shape[:2], dtype=np.uint8)
+                mask = np.zeros((h, w), dtype=np.uint8)
                 x1, y1, x2, y2 = map(int, det.bbox)
-                h, w = mask.shape
                 x1, y1 = max(0, x1), max(0, y1)
                 x2, y2 = min(w, x2), min(h, y2)
                 mask[y1:y2, x1:x2] = 255
 
-            ys, xs = np.where(mask > 0)
-            if len(xs) == 0:
-                continue
+            # Apply mask to depth - set non-masked pixels to 0
+            depth_masked = depth_cv.copy()
+            depth_masked[mask == 0] = 0
 
-            z_vals = depth_cv[ys, xs]
-
-            valid = (z_vals > 0) & np.isfinite(z_vals)
-            if not np.any(valid):
-                continue
-
-            ys = ys[valid]
-            xs = xs[valid]
-            z_vals = z_vals[valid]
-
-            x_vals = (xs - cx) * z_vals / fx
-            y_vals = (ys - cy) * z_vals / fy
-
-            points_3d = np.stack([x_vals, y_vals, z_vals], axis=1)
-            colors = color_cv[ys, xs]
-
-            pc = PointCloud2.from_numpy(
-                points_3d,
-                frame_id=depth_image.frame_id,
-                timestamp=depth_image.ts,
+            # Use Open3D's optimized RGBD-to-pointcloud (single C++ call)
+            rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+                o3d.geometry.Image(color_cv.astype(np.uint8)),
+                o3d.geometry.Image(depth_masked.astype(np.float32)),
+                depth_scale=depth_scale,
+                depth_trunc=depth_trunc,
+                convert_rgb_to_intensity=False,
             )
-            
-            pc.pointcloud.colors = o3d.utility.Vector3dVector(colors / 255.0)
+            pcd = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd, intrinsic_o3d)
 
-            filtered_pc = pc
-            is_valid = True
-            for filter_func in filters:
-                filtered_pc = filter_func(
-                    det, filtered_pc, camera_info, identity_transform
-                )
-                if filtered_pc is None:
-                    is_valid = False
-                    break
-
-            if not is_valid or len(filtered_pc.pointcloud.points) == 0:
+            if len(pcd.points) < 4:
                 continue
+
+            # Single statistical outlier removal (efficient)
+            pcd_filtered, _ = pcd.remove_statistical_outlier(
+                nb_neighbors=statistical_nb_neighbors,
+                std_ratio=statistical_std_ratio,
+            )
+
+            if len(pcd_filtered.points) < 4:
+                continue
+
+            # Wrap in PointCloud2
+            pc = PointCloud2(
+                pcd_filtered,
+                frame_id=depth_image.frame_id,
+                ts=depth_image.ts,
+            )
 
             detections_3d.append(
                 cls(
@@ -333,7 +335,7 @@ class Detection3DPC(Detection3D):
                     confidence=det.confidence,
                     name=det.name,
                     ts=det.ts,
-                    pointcloud=filtered_pc,
+                    pointcloud=pc,
                     transform=identity_transform,
                     frame_id=depth_image.frame_id,
                 )

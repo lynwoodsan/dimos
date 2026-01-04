@@ -75,13 +75,6 @@ class ImageDetections(Generic[T], TableStr):
             filtered_detections = [det for det in filtered_detections if predicate(det)]
         return ImageDetections(self.image, filtered_detections)
 
-    def to_ros_detection2d_array(self) -> Detection2DArray:
-        return Detection2DArray(
-            detections_length=len(self.detections),
-            header=Header(self.image.ts, "camera_optical"),
-            detections=[det.to_ros_detection2d() for det in self.detections],
-        )
-
     def to_foxglove_annotations(self) -> ImageAnnotations:
         def flatten(xss):  # type: ignore[no-untyped-def]
             return [x for xs in xss for x in xs]

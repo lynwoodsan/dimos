@@ -504,6 +504,8 @@ class PointCloud2(Timestamped):
     def to_ros_msg(self) -> ROSPointCloud2:
         """Convert to ROS sensor_msgs/PointCloud2 message.
 
+        Includes RGB color data if the pointcloud has colors.
+
         Returns:
             ROS PointCloud2 message
         """
@@ -536,19 +538,51 @@ class PointCloud2(Timestamped):
         ros_msg.height = 1  # Unorganized point cloud
         ros_msg.width = len(points)
 
-        # Define fields (X, Y, Z as float32)
-        ros_msg.fields = [
-            ROSPointField(name="x", offset=0, datatype=ROSPointField.FLOAT32, count=1),  # type: ignore[no-untyped-call]
-            ROSPointField(name="y", offset=4, datatype=ROSPointField.FLOAT32, count=1),  # type: ignore[no-untyped-call]
-            ROSPointField(name="z", offset=8, datatype=ROSPointField.FLOAT32, count=1),  # type: ignore[no-untyped-call]
-        ]
+        # Check if pointcloud has colors
+        has_colors = self.pointcloud.has_colors()
 
-        # Set point step and row step
-        ros_msg.point_step = 12  # 3 floats * 4 bytes each
+        if has_colors:
+            # Include RGB field - pack as XYZRGB
+            ros_msg.fields = [
+                ROSPointField(name="x", offset=0, datatype=ROSPointField.FLOAT32, count=1),  # type: ignore[no-untyped-call]
+                ROSPointField(name="y", offset=4, datatype=ROSPointField.FLOAT32, count=1),  # type: ignore[no-untyped-call]
+                ROSPointField(name="z", offset=8, datatype=ROSPointField.FLOAT32, count=1),  # type: ignore[no-untyped-call]
+                ROSPointField(name="rgb", offset=12, datatype=ROSPointField.UINT32, count=1),  # type: ignore[no-untyped-call]
+            ]
+            ros_msg.point_step = 16  # 3 floats + 1 uint32
+
+            # Get colors and convert to packed RGB uint32
+            colors = np.asarray(self.pointcloud.colors)  # (N, 3) in [0, 1]
+            colors_uint8 = (colors * 255).astype(np.uint8)
+            rgb_packed = (
+                (colors_uint8[:, 0].astype(np.uint32) << 16)
+                | (colors_uint8[:, 1].astype(np.uint32) << 8)
+                | colors_uint8[:, 2].astype(np.uint32)
+            )
+
+            # Create structured array with x, y, z, rgb
+            cloud_data = np.zeros(
+                len(points),
+                dtype=[("x", np.float32), ("y", np.float32), ("z", np.float32), ("rgb", np.uint32)],
+            )
+            cloud_data["x"] = points[:, 0]
+            cloud_data["y"] = points[:, 1]
+            cloud_data["z"] = points[:, 2]
+            cloud_data["rgb"] = rgb_packed
+
+            ros_msg.data = cloud_data.tobytes()
+        else:
+            # No colors - just XYZ
+            ros_msg.fields = [
+                ROSPointField(name="x", offset=0, datatype=ROSPointField.FLOAT32, count=1),  # type: ignore[no-untyped-call]
+                ROSPointField(name="y", offset=4, datatype=ROSPointField.FLOAT32, count=1),  # type: ignore[no-untyped-call]
+                ROSPointField(name="z", offset=8, datatype=ROSPointField.FLOAT32, count=1),  # type: ignore[no-untyped-call]
+            ]
+            ros_msg.point_step = 12  # 3 floats * 4 bytes each
+
+            ros_msg.data = points.astype(np.float32).tobytes()
+
         ros_msg.row_step = ros_msg.point_step * ros_msg.width
-
-        # Convert points to bytes (little endian float32)
-        ros_msg.data = points.astype(np.float32).tobytes()
 
         # Set properties
         ros_msg.is_bigendian = False  # Little endian

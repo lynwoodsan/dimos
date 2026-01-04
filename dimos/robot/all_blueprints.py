@@ -39,6 +39,7 @@ all_blueprints = {
     "demo-gps-nav": "dimos.agents2.skills.demo_gps_nav:demo_gps_nav_skill",
     "demo-google-maps-skill": "dimos.agents2.skills.demo_google_maps_skill:demo_google_maps_skill",
     "demo-visual-tracking": "dimos.agents2.skills.demo_visual_tracking:demo_visual_tracking",
+    "demo-object-scene-registration": "dimos.perception.demo_object_scene_registration:demo_object_scene_registration",
     "demo-remapping": "dimos.robot.unitree_webrtc.demo_remapping:remapping",
     "demo-remapping-transport": "dimos.robot.unitree_webrtc.demo_remapping:remapping_and_transport",
     "demo-error-on-name-conflicts": "dimos.robot.unitree_webrtc.demo_error_on_name_conflicts:blueprint",

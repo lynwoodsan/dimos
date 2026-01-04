@@ -29,7 +29,7 @@ from dimos.perception.detection.type.detection2d.bbox import Bbox, Detection2DBB
 from dimos.types.timestamped import to_ros_stamp
 
 if TYPE_CHECKING:
-    pass
+    from ultralytics.engine.results import Results
 
 
 @dataclass
@@ -89,6 +89,76 @@ class Detection2DSeg(Detection2DBBox):
         return cls(
             bbox=bbox,
             track_id=obj_id,
+            class_id=class_id,
+            confidence=confidence,
+            name=name,
+            ts=image.ts,
+            image=image,
+            mask=mask,
+        )
+
+    @classmethod
+    def from_ultralytics_result(
+        cls, result: Results, idx: int, image: Image
+    ) -> Detection2DSeg:
+        """Create Detection2DSeg from ultralytics Results object with segmentation mask.
+
+        Args:
+            result: Ultralytics Results object containing detection and mask data
+            idx: Index of the detection in the results
+            image: Source image
+
+        Returns:
+            Detection2DSeg instance
+        """
+        if result.boxes is None:
+            raise ValueError("Result has no boxes")
+
+        # Extract bounding box coordinates
+        bbox_array = result.boxes.xyxy[idx].cpu().numpy()
+        bbox: Bbox = (
+            float(bbox_array[0]),
+            float(bbox_array[1]),
+            float(bbox_array[2]),
+            float(bbox_array[3]),
+        )
+
+        # Extract confidence
+        confidence = float(result.boxes.conf[idx].cpu())
+
+        # Extract class ID and name
+        class_id = int(result.boxes.cls[idx].cpu())
+        name = (
+            result.names.get(class_id, f"class_{class_id}")
+            if hasattr(result, "names")
+            else f"class_{class_id}"
+        )
+
+        # Extract track ID if available
+        track_id = -1
+        if hasattr(result.boxes, "id") and result.boxes.id is not None:
+            track_id = int(result.boxes.id[idx].cpu())
+
+        # Extract mask
+        mask = np.zeros((image.height, image.width), dtype=np.uint8)
+        if result.masks is not None and idx < len(result.masks.data):
+            mask_tensor = result.masks.data[idx]
+            mask_np = mask_tensor.cpu().numpy()
+
+            # Resize mask to image size if needed
+            if mask_np.shape != (image.height, image.width):
+                mask_np = cv2.resize(
+                    mask_np.astype(np.float32),
+                    (image.width, image.height),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+
+            # Binarize mask
+            mask = (mask_np > 0.5).astype(np.uint8) * 255
+
+        return cls(
+            bbox=bbox,
+            track_id=track_id,
             class_id=class_id,
             confidence=confidence,
             name=name,
