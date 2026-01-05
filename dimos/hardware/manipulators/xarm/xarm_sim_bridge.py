@@ -93,12 +93,11 @@ class XArmSimBridge:
         control_frequency: float,  # control frequency in Hz
     ):
         # Select model based on number of joints (DOF)
-        # Path: dimos/hardware/manipulators/xarm/ -> dimos/simulation/manipulation/data/xarm{dof}/
+        # Path: dimos/hardware/manipulators/xarm/ -> dimos/simulation/data/xarm{dof}/
         model_folder = f"xarm{num_joints}"
         self._model_path = (
             Path(__file__).parent.parent.parent.parent
             / "simulation"
-            / "manipulation"
             / "data"
             / model_folder
             / "scene.xml"

@@ -100,11 +100,10 @@ class PiperSimBridge:
         self,
         control_frequency: float = 100.0,  # control frequency in Hz
     ):
-        # Path: dimos/hardware/manipulators/piper/ -> dimos/simulation/manipulation/data/piper/
+        # Path: dimos/hardware/manipulators/piper/ -> dimos/simulation/data/piper/
         self._model_path = (
             Path(__file__).parent.parent.parent.parent
             / "simulation"
-            / "manipulation"
             / "data"
             / "piper"
             / "scene.xml"
