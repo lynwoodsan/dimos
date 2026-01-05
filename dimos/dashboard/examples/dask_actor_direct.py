@@ -17,10 +17,10 @@
 from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
-import json
 import os
 from pathlib import Path
 import pickle
+import sys
 import threading
 import time
 from typing import Any
@@ -90,9 +90,23 @@ class Dashboard_DaskActor:
 
 
 DEFAULT_REPLAY_PATHS = {
-    "color_image": str(Path(__file__).with_name(f"example_data_{'color_image'}.yaml")),
-    "lidar": str(Path(__file__).with_name(f"example_data_{'lidar'}.yaml")),
+    "color_image": str(Path(__file__).with_name(f"example_data_{'color_image'}.flat.yaml")),
+    "lidar": str(Path(__file__).with_name(f"example_data_{'lidar'}.flat.yaml")),
 }
+
+
+def iter_yaml_data_line_by_line(path):
+    if not Path(path).exists():
+        raise FileNotFoundError(Path(path))
+    with Path(path).open("r", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            if not line.startswith("- "):
+                continue
+            try:
+                yield pickle.loads(yaml.safe_load(line[2:]))
+            except Exception as exc:
+                print(f"[yaml_replay_read] line {i} parse error: {exc}", file=sys.stderr)
+                continue
 
 
 class ReplayYamlData_DaskActor:
@@ -111,26 +125,9 @@ class ReplayYamlData_DaskActor:
         stream = rr.RecordingStream(rerun_info["logging_id"], recording_id=rerun_info["logging_id"])
         stream.connect_grpc(rerun_info["url"])
         while True:  # restart if ran out of messages
-            for log_path, payload in self._iter_messages(yaml_filepath):
+            for log_path, payload in iter_yaml_data_line_by_line(yaml_filepath):
                 print("logging " + yaml_filepath)
                 stream.log(log_path, payload, strict=True)
-                time.sleep(0.1)
-
-    def _iter_messages(self, yaml_filepath):
-        file_path = Path(yaml_filepath)
-        if not file_path.exists():
-            raise FileNotFoundError(f"[ReplayYamlData_DaskActor] missing replay file: {file_path}")
-
-        with file_path.open("r", encoding="utf-8") as f:
-            for doc in yaml.safe_load_all(f):
-                for item in doc:
-                    if isinstance(item, (bytes, bytearray)):
-                        try:
-                            yield pickle.loads(item)
-                        except Exception as error:
-                            print(f"[ReplayYamlData_DaskActor] failed to unpickle entry: {error}")
-                    else:
-                        yield item
 
 
 # ------------------------------ Entrypoint --------------------------------- #
