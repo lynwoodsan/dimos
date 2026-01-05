@@ -253,10 +253,7 @@ class BaseManipulatorDriver(Module):
 
         self.shared_state.is_connected = True
         self.logger.info(f"Successfully connected to {self.name}")
-
-        # Get initial state
-        self._update_joint_state()
-        self._update_robot_state()
+        # Note: Initial state update moved to start() - transports aren't ready during __init__
 
     def _update_joint_state(self):
         """Update joint state from hardware (high frequency - 100Hz).
@@ -373,6 +370,10 @@ class BaseManipulatorDriver(Module):
                 self.logger.debug("Subscribed to joint_velocity_command")
         except (AttributeError, ValueError) as e:
             self.logger.debug(f"joint_velocity_command transport not configured: {e}")
+
+        # Get and publish initial state (transports are now connected)
+        self._update_joint_state()
+        self._update_robot_state()
 
         self.threads = [
             Thread(target=self._control_loop_thread, name=f"{self.name}-ControlLoop", daemon=True),
