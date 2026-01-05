@@ -145,9 +145,22 @@ planning/
 ## Running the Interactive Tester
 
 ```bash
-# Full planning tester with robot, obstacles, IK, and motion planning
+# Default (Piper robot)
 python -m dimos.manipulation.planning.examples.planning_tester
+
+# xArm 6-DOF
+python -m dimos.manipulation.planning.examples.planning_tester --robot xarm6
+
+# xArm 7-DOF
+python -m dimos.manipulation.planning.examples.planning_tester --robot xarm7
 ```
+
+Supported robots:
+| Robot | DOF | Description |
+|-------|-----|-------------|
+| `piper` | 6 | Agilex Piper arm (default) |
+| `xarm6` | 6 | UFactory xArm 6-DOF |
+| `xarm7` | 7 | UFactory xArm 7-DOF |
 
 Commands:
 - `joints` - Show current joint positions
@@ -156,7 +169,7 @@ Commands:
 - `ee` - Show end-effector pose
 - `collision` - Check current collision status
 - `ik <x> <y> <z>` - Solve IK for position
-- `plan <j1> <j2> ... <j6>` - Plan to joint configuration
+- `plan <j1> <j2> ...` - Plan to joint configuration
 - `add` - Add obstacle interactively
 - `list` - List all obstacles
 - `clear` - Remove all obstacles
@@ -164,15 +177,11 @@ Commands:
 
 ## Key Design Decisions
 
-1. **Protocol-based architecture**: All code uses Protocol types, enabling future backend swaps (MuJoCo, VAMP, etc.)
-
+1. **Protocol-based architecture**: All code uses Protocol types, enabling future backend swaps
 2. **Factory pattern**: Only factory functions know about concrete implementations
-
 3. **Context management**: Thread-safe collision checking via scratch contexts
-
-4. **Dynamic obstacles**: Obstacles can be added/removed after `finalize()` and are immediately visible to collision queries
-
-5. **Stateless IK/Planning**: Kinematics and planners are stateless, using WorldSpec for all state operations
+4. **Dynamic obstacles**: Obstacles can be added/removed after `finalize()`
+5. **Stateless IK/Planning**: Kinematics and planners are stateless
 
 ## Available Planners
 

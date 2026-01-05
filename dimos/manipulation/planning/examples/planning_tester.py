@@ -24,7 +24,16 @@ A comprehensive testing tool for the manipulation planning stack:
 - Path visualization
 
 Usage:
-    python planning_tester.py
+    python planning_tester.py [--robot ROBOT]
+
+    Supported robots:
+        piper   - Agilex Piper 6-DOF arm (default)
+        xarm6   - UFactory xArm 6-DOF arm
+        xarm7   - UFactory xArm 7-DOF arm
+
+    Examples:
+        python planning_tester.py --robot piper
+        python planning_tester.py --robot xarm6
 
 Commands:
     # Robot Control
@@ -84,8 +93,61 @@ if TYPE_CHECKING:
 class PlanningTester:
     """Interactive planning tester with robot, obstacles, IK, and planning."""
 
-    def __init__(self):
-        """Initialize the planning tester."""
+    # Supported robot configurations
+    ROBOT_CONFIGS = {
+        "piper": {
+            "name": "piper",
+            "urdf_subpath": "piper/piper_description/urdf/piper_description.urdf",
+            "joint_names": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
+            "end_effector_link": "link6",
+            "base_link": "base_link",
+            "package_name": "piper_description",
+            "package_subpath": "piper/piper_description",
+            "is_xacro": False,
+        },
+        "xarm6": {
+            "name": "xarm6",
+            "urdf_subpath": "xarm/xarm_description/urdf/xarm_device.urdf.xacro",
+            "joint_names": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
+            "end_effector_link": "link6",
+            "base_link": "link_base",
+            "package_name": "xarm_description",
+            "package_subpath": "xarm/xarm_description",
+            "is_xacro": True,
+            "xacro_args": {"dof": "6", "limited": "true"},
+        },
+        "xarm7": {
+            "name": "xarm7",
+            "urdf_subpath": "xarm/xarm_description/urdf/xarm_device.urdf.xacro",
+            "joint_names": [
+                "joint1",
+                "joint2",
+                "joint3",
+                "joint4",
+                "joint5",
+                "joint6",
+                "joint7",
+            ],
+            "end_effector_link": "link7",
+            "base_link": "link_base",
+            "package_name": "xarm_description",
+            "package_subpath": "xarm/xarm_description",
+            "is_xacro": True,
+            "xacro_args": {"dof": "7", "limited": "true"},
+        },
+    }
+
+    def __init__(self, robot_type: str = "piper"):
+        """Initialize the planning tester.
+
+        Args:
+            robot_type: Robot type to use ("piper", "xarm6", "xarm7")
+        """
+        if robot_type not in self.ROBOT_CONFIGS:
+            raise ValueError(
+                f"Unknown robot type: {robot_type}. Supported: {list(self.ROBOT_CONFIGS.keys())}"
+            )
+        self._robot_type = robot_type
         self._world: WorldSpec | None = None
         self._kinematics: KinematicsSpec | None = None
         self._planner: PlannerSpec | None = None
@@ -97,7 +159,7 @@ class PlanningTester:
     def setup(self) -> bool:
         """Set up the planning stack."""
         print("=" * 60)
-        print("Planning Tester - Full Stack Testing")
+        print(f"Planning Tester - {self._robot_type.upper()}")
         print("=" * 60)
 
         # Create components
@@ -125,8 +187,9 @@ class PlanningTester:
         self._world.finalize()
         print("   World finalized")
 
-        # Initialize robot position
-        self._current_joints = np.zeros(6)
+        # Initialize robot position (DOF from robot config)
+        num_joints = len(self.ROBOT_CONFIGS[self._robot_type]["joint_names"])
+        self._current_joints = np.zeros(num_joints)
         self._world.sync_from_joint_state(self._robot_id, self._current_joints)
         self._world.publish_to_meshcat()
 
@@ -163,30 +226,36 @@ class PlanningTester:
         print(f"   Added obstacle: {obstacle.name} at {obstacle_pose[:3, 3]}")
 
     def _load_robot(self) -> bool:
-        """Load the robot model."""
-        # Path: tester -> planning -> manipulation -> dimos -> hardware
+        """Load the robot model based on selected robot type."""
+        robot_cfg = self.ROBOT_CONFIGS[self._robot_type]
+
+        # Path: examples -> planning -> manipulation -> dimos -> hardware
         base_path = Path(__file__).parent.parent.parent.parent / "hardware" / "manipulators"
-        urdf_path = base_path / "piper" / "piper_description" / "urdf" / "piper_description.urdf"
+        urdf_path = base_path / robot_cfg["urdf_subpath"]
 
         if not urdf_path.exists():
             print(f"   ERROR: Robot URDF not found: {urdf_path}")
             return False
 
+        # Build xacro args if needed
+        xacro_args = robot_cfg.get("xacro_args", {})
+
         config = RobotModelConfig(
-            name="piper",
+            name=robot_cfg["name"],
             urdf_path=str(urdf_path),
             base_pose=np.eye(4),
-            joint_names=["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
-            end_effector_link="link6",
-            base_link="base_link",
+            joint_names=robot_cfg["joint_names"],
+            end_effector_link=robot_cfg["end_effector_link"],
+            base_link=robot_cfg["base_link"],
             package_paths={
-                "piper_description": str(base_path / "piper" / "piper_description"),
+                robot_cfg["package_name"]: str(base_path / robot_cfg["package_subpath"]),
             },
             auto_convert_meshes=True,
+            xacro_args=xacro_args,
         )
 
         self._robot_id = self._world.add_robot(config)
-        print(f"   Loaded robot: {self._robot_id}")
+        print(f"   Loaded robot: {self._robot_id} ({self._robot_type})")
         return True
 
     def run(self) -> None:
@@ -693,7 +762,33 @@ class PlanningTester:
 
 def main():
     """Run the planning tester."""
-    tester = PlanningTester()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Interactive planning tester for manipulation stack",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Supported robots:
+  piper   - Agilex Piper 6-DOF arm (default)
+  xarm6   - UFactory xArm 6-DOF arm
+  xarm7   - UFactory xArm 7-DOF arm
+
+Examples:
+  python planning_tester.py --robot piper
+  python planning_tester.py --robot xarm6
+        """,
+    )
+    parser.add_argument(
+        "--robot",
+        type=str,
+        default="piper",
+        choices=list(PlanningTester.ROBOT_CONFIGS.keys()),
+        help="Robot type to use (default: piper)",
+    )
+
+    args = parser.parse_args()
+
+    tester = PlanningTester(robot_type=args.robot)
     if tester.setup():
         tester.run()
     else:
