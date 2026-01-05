@@ -22,8 +22,8 @@ methods used by the wrapper.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import threading
 import time
@@ -47,6 +47,7 @@ PIPER_TO_RAD = 1.0 / RAD_TO_PIPER  # Piper units to radians
 @dataclass
 class JointState:
     """Mimics Piper SDK joint state message."""
+
     joint_1: float = 0.0
     joint_2: float = 0.0
     joint_3: float = 0.0
@@ -58,6 +59,7 @@ class JointState:
 @dataclass
 class JointMsgs:
     """Mimics Piper SDK joint messages."""
+
     joint_state: JointState = None  # type: ignore
 
     def __post_init__(self):
@@ -68,6 +70,7 @@ class JointMsgs:
 @dataclass
 class ArmStatus:
     """Mimics Piper SDK arm status."""
+
     err_code: int = 0
     motion_status: int = 0
 
@@ -75,6 +78,7 @@ class ArmStatus:
 @dataclass
 class ArmStatusMsg:
     """Mimics Piper SDK arm status message."""
+
     arm_status: ArmStatus = None  # type: ignore
 
     def __post_init__(self):
@@ -203,7 +207,7 @@ class PiperSimBridge:
         joint_6: float,
     ) -> None:
         """Set joint positions (mimics C_PiperInterface_V2.JointCtrl).
-        
+
         Args:
             joint_1-6: Target positions in Piper units (0.001 degrees)
         """
@@ -215,7 +219,7 @@ class PiperSimBridge:
             self._joint_position_targets[3] = joint_4 * PIPER_TO_RAD
             self._joint_position_targets[4] = joint_5 * PIPER_TO_RAD
             self._joint_position_targets[5] = joint_6 * PIPER_TO_RAD
-        
+
         logger.debug(f"PiperSimBridge: JointCtrl targets (rad): {self._joint_position_targets}")
 
     def EmergencyStop(self) -> None:
@@ -230,7 +234,7 @@ class PiperSimBridge:
 
     def GetArmJointMsgs(self) -> JointMsgs:
         """Get joint state messages (mimics C_PiperInterface_V2.GetArmJointMsgs).
-        
+
         Returns:
             JointMsgs with joint_state containing positions in Piper units
         """
@@ -247,7 +251,7 @@ class PiperSimBridge:
 
     def GetArmStatus(self) -> ArmStatusMsg:
         """Get arm status (mimics C_PiperInterface_V2.GetArmStatus).
-        
+
         Returns:
             ArmStatusMsg with arm_status
         """
@@ -260,7 +264,7 @@ class PiperSimBridge:
 
     def GetPiperFirmwareVersion(self) -> str:
         """Get firmware version (mimics C_PiperInterface_V2.GetPiperFirmwareVersion).
-        
+
         Returns:
             Firmware version string
         """
@@ -276,7 +280,7 @@ class PiperSimBridge:
 
     def GripperCtrl(self, percentage: int) -> None:
         """Control gripper (mimics C_PiperInterface_V2.GripperCtrl).
-        
+
         Args:
             percentage: Gripper opening 0-100
         """
@@ -285,7 +289,7 @@ class PiperSimBridge:
 
     def GetGripperState(self) -> int:
         """Get gripper state.
-        
+
         Returns:
             Gripper position 0-100
         """
@@ -328,4 +332,3 @@ class PiperSimBridge:
                 time.sleep(dt)
 
         logger.info("PiperSimBridge: sim loop stopped")
-
