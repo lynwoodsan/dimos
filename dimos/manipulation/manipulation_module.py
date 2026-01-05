@@ -68,11 +68,12 @@ from dimos.manipulation.planning import (
 from dimos.manipulation.planning.monitor import WorldMonitor
 from dimos.manipulation.utils import pose_from_xyzrpy
 
+# These must be imported at runtime (not TYPE_CHECKING) for In/Out port creation
+from dimos.msgs.sensor_msgs import JointState  # noqa: TC001
+from dimos.msgs.trajectory_msgs import JointTrajectory  # noqa: TC001
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-
-    from dimos.msgs.sensor_msgs import JointState
-    from dimos.msgs.trajectory_msgs import JointTrajectory
 
 logger = logging.getLogger(__name__)
 
