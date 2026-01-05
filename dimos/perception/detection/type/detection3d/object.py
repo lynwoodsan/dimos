@@ -60,6 +60,10 @@ class Object(Detection3D):
     mesh_dimensions: tuple[float, float, float] | None = None
     fp_position: tuple[float, float, float] | None = None
     fp_orientation: tuple[float, float, float, float] | None = None
+    # World-frame frozen pose (computed once when mesh/pose result is received)
+    # This prevents RViz meshes from drifting as the camera_transform is updated each frame.
+    fp_world_position: tuple[float, float, float] | None = None
+    fp_world_orientation: tuple[float, float, float, float] | None = None
 
     @property
     def has_mesh(self) -> bool:

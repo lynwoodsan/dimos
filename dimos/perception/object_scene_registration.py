@@ -358,7 +358,33 @@ class ObjectSceneRegistrationModule(Module):
                             obj.mesh_dimensions = result.get("mesh_dimensions")
                             obj.fp_position = result.get("fp_position")
                             obj.fp_orientation = result.get("fp_orientation")
-                            obj.camera_transform = camera_transform  # Store request-time transform
+                            obj.camera_transform = camera_transform  # Request-time transform (debug/reference)
+
+                            # Freeze world-frame pose at mesh completion time to prevent drift.
+                            if (
+                                obj.fp_position is not None
+                                and obj.fp_orientation is not None
+                                and camera_transform is not None
+                            ):
+                                T_camera_object = Transform(
+                                    translation=Vector3(*obj.fp_position),
+                                    rotation=Quaternion(*obj.fp_orientation),
+                                    frame_id=camera_transform.child_frame_id,
+                                    child_frame_id=obj.object_id,
+                                    ts=obj.ts,
+                                )
+                                T_map_object = camera_transform + T_camera_object
+                                obj.fp_world_position = (
+                                    float(T_map_object.translation.x),
+                                    float(T_map_object.translation.y),
+                                    float(T_map_object.translation.z),
+                                )
+                                obj.fp_world_orientation = (
+                                    float(T_map_object.rotation.x),
+                                    float(T_map_object.rotation.y),
+                                    float(T_map_object.rotation.z),
+                                    float(T_map_object.rotation.w),
+                                )
                 self._mesh_request_states[object_id] = "DONE"
                 logger.info(f"Mesh complete for object_id={object_id}")
 
@@ -651,10 +677,12 @@ class ObjectSceneRegistrationModule(Module):
         # Look up transform from camera frame to target frame (e.g., map)
         if self._tf_buffer is not None:
             try:
+                # Use the image timestamp for TF lookup to avoid drift from using "latest"
+                lookup_time = rclpy.time.Time.from_msg(header.stamp)
                 ros_transform = self._tf_buffer.lookup_transform(
                     self._target_frame,
                     color_image.frame_id,
-                    rclpy.time.Time(),
+                    lookup_time,
                     timeout=rclpy.duration.Duration(seconds=0.4),
                 )
                 camera_transform = Transform.from_ros_transform_stamped(ros_transform)
@@ -741,21 +769,11 @@ class ObjectSceneRegistrationModule(Module):
                 continue
 
             # Determine pose in target_frame (map)
-            # Use camera_transform stored on object (from mesh request time)
-            if obj.fp_position is not None and obj.fp_orientation is not None:
-                if obj.camera_transform is None:
-                    continue  # Can't transform without stored camera pose
-                T_camera_object = Transform(
-                    translation=Vector3(*obj.fp_position),
-                    rotation=Quaternion(*obj.fp_orientation),
-                    frame_id=obj.camera_transform.child_frame_id,
-                    child_frame_id=obj.object_id,
-                    ts=obj.ts,
-                )
-                T_map_object = obj.camera_transform + T_camera_object
-                pos = T_map_object.translation
-                rot = T_map_object.rotation
-                frame_id = obj.camera_transform.frame_id
+            # Prefer frozen world-frame pose (computed once at mesh completion time)
+            if obj.fp_world_position is not None and obj.fp_world_orientation is not None:
+                pos = Vector3(*obj.fp_world_position)
+                rot = Quaternion(*obj.fp_world_orientation)
+                frame_id = self._target_frame
             elif obj.center is not None:
                 pos = obj.center
                 rot = Quaternion(0.0, 0.0, 0.0, 1.0)
@@ -784,10 +802,12 @@ class ObjectSceneRegistrationModule(Module):
             m.scale.x = 1.0
             m.scale.y = 1.0
             m.scale.z = 1.0
-            m.color.r = 1.0
-            m.color.g = 1.0
-            m.color.b = 1.0
-            m.color.a = 1.0
+            # Use mesh's embedded colors/materials instead of marker color
+            m.mesh_use_embedded_materials = True
+            m.color.r = 0.0
+            m.color.g = 0.0
+            m.color.b = 0.0
+            m.color.a = 0.0  # Alpha 0 = don't tint
             marker_array.markers.append(m)
 
         self._mesh_markers_pub.publish(marker_array)
