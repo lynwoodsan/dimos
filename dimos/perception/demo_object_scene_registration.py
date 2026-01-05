@@ -18,5 +18,7 @@ from dimos.perception.object_scene_registration import object_scene_registration
 
 # ObjectDB is now internal to ObjectSceneRegistrationModule (no longer a separate module)
 demo_object_scene_registration = autoconnect(
-    object_scene_registration_module(),
+    object_scene_registration_module(
+        mesh_pose_service_url="http://localhost:8080",
+    ),
 )
