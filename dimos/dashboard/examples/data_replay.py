@@ -120,15 +120,25 @@ class DataReplay(Module):
 
             self._disposables.add(Disposable(self._stop_event.set))
             for thread in self._threads:
-                self._disposables.add(Disposable(thread.join))
+
+                def scope_helper(_thread):
+                    def actual_join_thread():
+                        try:
+                            _thread.join(timeout=1)
+                        except Exception as error:
+                            print(f"[DataReplay.close] error in joining thread: {error}")
+
+                    self._disposables.add(Disposable(actual_join_thread))
+
+                scope_helper(thread)
         except Exception as error:
             print(f"""[DataReplay] error = {error}""")
 
 
 # NOTE: this data was recorded with `from dimos.dashboard.support.utils import record_message`
 replay_paths = {
-    "color_image": "./dimos/dashboard/support/color_image.yaml",
     "lidar": "./dimos/dashboard/support/lidar.yaml",
+    "color_image": "./dimos/dashboard/support/color_image.yaml",
     # "odom": "./dimos/dashboard/support/odom.yaml",
 }
 blueprint = (
