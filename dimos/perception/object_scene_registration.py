@@ -800,26 +800,25 @@ class ObjectSceneRegistrationModule(Module):
                     timeout=rclpy.duration.Duration(seconds=0.4),
                 )
                 camera_transform = Transform.from_ros_transform_stamped(ros_transform)
-                
+
                 # Rerun: log camera pose in world frame (makes camera visible on map)
                 try:
                     import rerun as rr  # type: ignore[import-not-found]
                     from scipy.spatial.transform import Rotation as R
-                    
+
                     trans = camera_transform.translation
                     rot_quat = camera_transform.rotation
-                    rot_matrix = R.from_quat([rot_quat.x, rot_quat.y, rot_quat.z, rot_quat.w]).as_matrix()
-                    
+                    rot_matrix = R.from_quat(
+                        [rot_quat.x, rot_quat.y, rot_quat.z, rot_quat.w]
+                    ).as_matrix()
+
                     self._rr_log(
                         "/world/camera",
-                        rr.Transform3D(
-                            translation=[trans.x, trans.y, trans.z],
-                            mat3x3=rot_matrix
-                        )
+                        rr.Transform3D(translation=[trans.x, trans.y, trans.z], mat3x3=rot_matrix),
                     )
                 except Exception:
                     pass
-                    
+
             except (
                 tf2_ros.LookupException,
                 tf2_ros.ConnectivityException,
@@ -1020,11 +1019,13 @@ class ObjectSceneRegistrationModule(Module):
         vertex_colors = None
         try:
             # Reference code uses mesh.visual.vertex_colors DIRECTLY, not to_color()
-            if hasattr(mesh.visual, 'vertex_colors'):
+            if hasattr(mesh.visual, "vertex_colors"):
                 vertex_colors = mesh.visual.vertex_colors
-                logger.info(f"[Rerun] Direct vertex_colors: shape={vertex_colors.shape}, dtype={vertex_colors.dtype}")
+                logger.info(
+                    f"[Rerun] Direct vertex_colors: shape={vertex_colors.shape}, dtype={vertex_colors.dtype}"
+                )
             else:
-                logger.warning(f"[Rerun] mesh.visual has no vertex_colors attribute")
+                logger.warning("[Rerun] mesh.visual has no vertex_colors attribute")
         except Exception as e:
             logger.warning(f"[Rerun] Failed to extract vertex colors: {e}", exc_info=True)
             vertex_colors = None
