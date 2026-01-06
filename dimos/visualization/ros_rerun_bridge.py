@@ -167,7 +167,9 @@ class RosRerunBridgeNode(Node):
         for buf in buffers:
             stats = buf.get_memory_stats()
             total_mb += stats["memory_mb"]
-            stats_parts.append(f"{stats['name']}={stats['total_points']}pts/{stats['memory_mb']:.1f}MB")
+            stats_parts.append(
+                f"{stats['name']}={stats['total_points']}pts/{stats['memory_mb']:.1f}MB"
+            )
 
         logger.warning(
             f"[RosRerunBridge:MemStats] Buffers: {' | '.join(stats_parts)} | "
