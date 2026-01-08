@@ -61,3 +61,4 @@ yolo11n.pt
 *.so
 
 /.mypy_cache*
+dimos/grasping/docker_context/GraspGenModels/

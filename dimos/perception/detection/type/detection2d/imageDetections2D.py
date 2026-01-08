@@ -65,6 +65,7 @@ class ImageDetections2D(ImageDetections[T2D], Generic[T2D]):
             ImageDetections2D containing appropriate detection types
         """
         from dimos.perception.detection.type.detection2d.person import Detection2DPerson
+        from dimos.perception.detection.type.detection2d.seg import Detection2DSeg
 
         detections: list[Detection2DBBox] = []
         for result in results:
@@ -74,7 +75,10 @@ class ImageDetections2D(ImageDetections[T2D], Generic[T2D]):
             num_detections = len(result.boxes.xyxy)
             for i in range(num_detections):
                 detection: Detection2DBBox
-                if result.keypoints is not None:
+                if result.masks is not None:
+                    # Segmentation detection with mask
+                    detection = Detection2DSeg.from_ultralytics_result(result, i, image)
+                elif result.keypoints is not None:
                     # Pose detection with keypoints
                     detection = Detection2DPerson.from_ultralytics_result(result, i, image)
                 else:
