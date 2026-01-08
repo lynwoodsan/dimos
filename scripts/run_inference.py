@@ -24,7 +24,6 @@ from dimos.core.transport import LCMTransport
 from dimos.msgs.sensor_msgs import Image
 from dimos.msgs.sensor_msgs.image_impls.AbstractImage import ImageFormat
 
-
 ACTION_HORIZON = 15
 ACTION_CHUNK = None
 GRIPPER_CHUNK = None
@@ -64,6 +63,7 @@ def get_observation():
 def franka_to_xarm(franka_joint_positions):
     offsets = np.array([0, 0, 0, 180, 0, 180, 0])
     return offsets - franka_joint_positions
+
 
 def xarm_to_franka(xarm_joint_positions):
     offsets = np.array([0, 0, 0, 180, 0, 180, 0])
