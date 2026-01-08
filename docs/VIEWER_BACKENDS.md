@@ -104,7 +104,7 @@ Rerun on `dev` is **module-driven**: modules decide what to log, and `ModuleBlue
     - [`dimos/navigation/replanning_a_star/module.py`](../dimos/navigation/replanning_a_star/module.py)
     ).
 
-### Panels and “why can’t I see my `rr.log`?”
+### Panels and how to use `rr.log` in DimOS
 
 On `dev`, the default layout is composed from modules’ `rerun_views()` contributions:
 
@@ -122,11 +122,7 @@ The intended pattern for TF visualization on `dev` is:
 - The TF visualization module **polls** the TF buffer at a configurable rate and logs a snapshot view:
   - [`dimos/dashboard/tf_rerun_module.py`](../dimos/dashboard/tf_rerun_module.py) polls `self.tf.buffers` and logs the latest transform per edge under `world/tf/{child}`.
 
-This is deliberate:
-- It avoids a second transport subscription inside the viz module.
-- It gives stable visualization with a controllable update rate (`poll_hz`).
-
-### Entity paths vs TF frames (avoiding `tf#` confusion)
+### Entity paths vs TF frames
 
 Rerun has two “spaces” you’re always juggling:
 
