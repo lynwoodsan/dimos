@@ -17,8 +17,8 @@
 # Default control frequency (Hz)
 DEFAULT_CONTROL_FREQUENCY = 100.0
 
-# Minimum control frequency to prevent division by zero
-MIN_CONTROL_FREQUENCY = 0.01
+# Minimum control frequency (Hz)
+MIN_CONTROL_FREQUENCY = 1.0
 
 # Thread join timeout (seconds)
 THREAD_JOIN_TIMEOUT = 2.0

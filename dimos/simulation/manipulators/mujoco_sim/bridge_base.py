@@ -33,9 +33,7 @@ import mujoco.viewer as viewer
 from dimos.simulation.manipulators.mujoco_sim.constants import (
     DEFAULT_CONTROL_FREQUENCY,
     MIN_CONTROL_FREQUENCY,
-    POSITION_ZERO_THRESHOLD,
     THREAD_JOIN_TIMEOUT,
-    VELOCITY_STOP_THRESHOLD,
 )
 from dimos.simulation.manipulators.mujoco_sim.model_utils import load_manipulator_model
 from dimos.utils.logging_config import setup_logger
@@ -74,17 +72,24 @@ class MujocoSimBridgeBase(ABC):
         Args:
             robot_name: Name of the robot (e.g., "piper", "xarm")
             num_joints: Number of joints in the robot arm
-            control_frequency: Control frequency in Hz
+            control_frequency: Control frequency in Hz. Must be greater than
+                              MIN_CONTROL_FREQUENCY.
             model_path: Optional explicit path to MuJoCo model XML file.
                        If None, will be found automatically.
+
+        Raises:
+            ValueError: If control_frequency is < MIN_CONTROL_FREQUENCY.
         """
+        # Validate parameters before any initialization
+        if control_frequency < MIN_CONTROL_FREQUENCY:
+            raise ValueError(
+                f"control_frequency must be greater than {MIN_CONTROL_FREQUENCY} Hz, "
+                f"got {control_frequency} Hz. Default: {DEFAULT_CONTROL_FREQUENCY} Hz"
+            )
+
         self._robot_name = robot_name
         self._num_joints = num_joints
-        self._control_frequency = (
-            control_frequency
-            if control_frequency > MIN_CONTROL_FREQUENCY
-            else DEFAULT_CONTROL_FREQUENCY
-        )
+        self._control_frequency = control_frequency
 
         # Load MuJoCo model
         self._model, self._data = load_manipulator_model(
