@@ -89,7 +89,7 @@ def phase0():
         time.sleep(timeout)
     logo.stop()
     p.clear_screen()
-    
+
     # ask user project question up front
     project_dir = get_project_directory()
     if installer_status.get("template_repo"):
@@ -179,7 +179,7 @@ def phase0():
             print(
                 f"because you're on dev run: pip install 'dimos{feat_str} @ git+ssh://git@github.com/dimensionalOS/dimos.git'"
             )
-             
+
             # TODO: ask if they would like us to setup .envrc for them
             raise SystemExit(0)
 
