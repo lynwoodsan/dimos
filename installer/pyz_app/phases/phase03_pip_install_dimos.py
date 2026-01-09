@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+# Copyright 2025-2026 Dimensional Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from ..support import prompt_tools as p
+from ..support.constants import DISCORD_URL
+from ..support.installer_status import installer_status
+from ..support.shell_tooling import command_exists, run_command
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+
+def phase3(selected_features: Iterable[str] | None) -> None:
+    """Install dimos via uv pip, handling selected feature extras."""
+    features = list(selected_features) if selected_features else []
+    p.header("Next Phase: UV Pip Installing Dimos")
+    if not command_exists("uv"):
+        p.boring_log("- uv doesnt exist, installing it")
+        res = run_command(["pip", "install", "uv"], print_command=True)
+
+    p.boring_log(" - running main install")
+    res = run_command(["uv", "pip", "install", "numpy"], print_command=True)
+
+    selected_features_string = ""
+    if features:
+        selected_features_string = f"[{','.join(features)}]"
+    package_name = (
+        f"dimos{selected_features_string} @ git+ssh://git@github.com/dimensionalOS/dimos.git"
+    )
+    extra_args = []
+    if installer_status.get("dev"):
+        extra_args.append("--no-cache-dir")
+
+    res = run_command(["uv", "pip", "install", *extra_args, package_name], print_command=True)
+    if res.code != 0:
+        print("")
+        p.error(
+            f"Failed to pip install dimos 😕\nPlease message us in our discord and we'll help you get it installed!:\n    {p.highlight(DISCORD_URL)}"
+        )
+        raise SystemExit(1)
+
+    p.sub_header("🎉 Successfully installed dimos pip package!")
+    p.confirm("Press enter to do a quick sanity check that it actually works")

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Building then running docker"
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+DOCKERFILE="$REPO_ROOT/installer/pyz_app/bundled_files/Dockerfile"
+HASH_FILE="$SCRIPT_DIR/.dockerfile.hash"
+DOCKER_IMAGE_NAME="mystery"
+
+current_hash="$(sha256sum "$DOCKERFILE" | awk '{print $1}')"
+needs_build="true"
+if [[ -f "$HASH_FILE" ]]; then
+    prev_hash="$(cat "$HASH_FILE")"
+    if [[ "$prev_hash" == "$current_hash" ]]; then
+        needs_build="false"
+    fi
+fi
+
+if [[ "$needs_build" == "true" ]]; then
+    echo "Building image $DOCKER_IMAGE_NAME..."
+    docker build \
+        --build-arg "DIMOS_ENABLED_FEATURES=${DIMOS_ENABLED_FEATURES:-}" \
+        --build-arg "DIMOS_REF_FOR_DOCKER=${DIMOS_REF_FOR_DOCKER:-refs/heads/main}" \
+        -t "$DOCKER_IMAGE_NAME" \
+        -f "$DOCKERFILE" \
+        "$REPO_ROOT"
+    echo "$current_hash" > "$HASH_FILE"
+else
+    echo "Dockerfile unchanged; skipping build for $DOCKER_IMAGE_NAME."
+fi
+
+docker run -it --rm \
+    -e "DIMOS_ENABLED_FEATURES=${DIMOS_ENABLED_FEATURES:-}" \
+    -e "DIMOS_REF_FOR_DOCKER=${DIMOS_REF_FOR_DOCKER:-refs/heads/master}" \
+    -v "$REPO_ROOT":/app \
+    -w /app \
+    "$DOCKER_IMAGE_NAME"
