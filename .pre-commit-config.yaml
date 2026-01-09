@@ -1,4 +1,5 @@
 default_stages: [pre-commit]
+default_install_hook_types: [pre-commit, commit-msg]
 exclude: (dimos/models/.*)|(deprecated)
 repos:
 
@@ -74,8 +75,16 @@ repos:
         name: LFS data
         always_run: true
         pass_filenames: false
-        entry: bin/lfs_check
+        entry: bin/hooks/lfs_check
         language: script
+
+      - id: largefiles-check
+        name: Large files check
+        always_run: true
+        pass_filenames: false
+        entry: python bin/hooks/largefiles_check
+        language: python
+        additional_dependencies: ['tomli']
 
       - id: doclinks
         name: Doclinks
@@ -84,3 +93,9 @@ repos:
         entry: python -m dimos.utils.docs.doclinks docs/
         language: system
         files: ^docs/.*\.md$
+
+      - id: filter-commit-message
+        name: Filter generated signatures from commit message
+        entry: python bin/hooks/filter_commit_message.py
+        language: python
+        stages: [commit-msg]

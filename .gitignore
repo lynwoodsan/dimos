@@ -2,7 +2,6 @@
 **/*.ignore
 **/*.ignore.*
 
-*.pyz
 .vscode/
 
 # Ignore Python cache files
@@ -62,3 +61,5 @@ yolo11n.pt
 *.so
 
 /.mypy_cache*
+
+*mobileclip*
