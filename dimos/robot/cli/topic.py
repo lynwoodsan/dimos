@@ -18,11 +18,10 @@ import importlib
 import re
 import time
 
-import lcm  # type: ignore[import-untyped]
 import typer
 
 from dimos.core.transport import LCMTransport, pLCMTransport
-from dimos.protocol.service.lcmservice import autoconf
+from dimos.protocol.pubsub.lcmpubsub import LCMPubSubBase
 
 _modules_to_try = [
     "dimos.msgs.geometry_msgs",
@@ -69,8 +68,9 @@ def topic_echo(topic: str, type_name: str | None) -> None:
         return
 
     # Inferred typed mode: listen on /topic#pkg.Msg and decode from the msg_name suffix.
-    autoconf()
-    l = lcm.LCM()
+    bus = LCMPubSubBase(autoconf=True)
+    bus.start()  # starts threaded handle loop
+
     typed_pattern = rf"^{re.escape(topic)}#.*"
 
     def on_msg(channel: str, data: bytes) -> None:
@@ -80,7 +80,8 @@ def topic_echo(topic: str, type_name: str | None) -> None:
         cls = getattr(module, cls_name)
         print(cls.lcm_decode(data))
 
-    l.subscribe(typed_pattern, on_msg)
+    assert bus.l is not None
+    bus.l.subscribe(typed_pattern, on_msg)
 
     typer.echo(
         f"Listening on {topic} (inferring from typed LCM channels like '{topic}#pkg.Msg')... "
@@ -89,8 +90,9 @@ def topic_echo(topic: str, type_name: str | None) -> None:
 
     try:
         while True:
-            l.handle_timeout(50)
+            time.sleep(0.1)
     except KeyboardInterrupt:
+        bus.stop()
         typer.echo("\nStopped.")
 
 
