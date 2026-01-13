@@ -114,6 +114,7 @@ class BackendHardwareInterface:
         self._last_commanded: dict[str, float] = {}
         self._initialized = False
         self._warned_unknown_joints: set[str] = set()
+        self._current_mode: ControlMode | None = None
 
     @property
     def hardware_id(self) -> str:
@@ -182,17 +183,24 @@ class BackendHardwareInterface:
         # Build ordered list for backend
         ordered = self._build_ordered_command()
 
+        # Switch control mode if needed
+        if mode != self._current_mode:
+            if not self._backend.set_control_mode(mode):
+                logger.warning(f"Hardware {self._hardware_id} failed to switch to {mode.name}")
+                return False
+            self._current_mode = mode
+
         # Send to backend
-        if mode == ControlMode.POSITION:
-            return self._backend.write_joint_positions(ordered)
-        elif mode == ControlMode.VELOCITY:
-            return self._backend.write_joint_velocities(ordered)
-        elif mode == ControlMode.TORQUE:
-            # Most backends don't support torque mode
-            logger.warning(f"Hardware {self._hardware_id} does not support torque mode")
-            return False
-        else:
-            return False
+        match mode:
+            case ControlMode.POSITION:
+                return self._backend.write_joint_positions(ordered)
+            case ControlMode.VELOCITY:
+                return self._backend.write_joint_velocities(ordered)
+            case ControlMode.TORQUE:
+                logger.warning(f"Hardware {self._hardware_id} does not support torque mode")
+                return False
+            case _:
+                return False
 
     def _initialize_last_commanded(self) -> None:
         """Initialize last_commanded with current hardware positions."""

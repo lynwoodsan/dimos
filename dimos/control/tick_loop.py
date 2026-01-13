@@ -282,8 +282,9 @@ class TickLoop:
 
                 current = winners[joint_name]
 
-                # Lower priority - skip
+                # Lower priority loses - notify preemption
                 if candidate.priority < current.priority:
+                    preemptions.setdefault(task.name, {})[joint_name] = current.task_name
                     continue
 
                 # Higher priority - take over
