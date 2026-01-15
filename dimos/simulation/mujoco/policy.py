@@ -315,5 +315,7 @@ class MjlabVelocityOnnxController(OnnxController):
 
         # Apply control in MuJoCo actuator order.
         idx = self._ctrl_policy_idx
-        targets = self._default_joint_pos_policy[idx] + onnx_pred[idx] * self._action_scale_policy[idx]
+        targets = (
+            self._default_joint_pos_policy[idx] + onnx_pred[idx] * self._action_scale_policy[idx]
+        )
         data.ctrl[:] = targets

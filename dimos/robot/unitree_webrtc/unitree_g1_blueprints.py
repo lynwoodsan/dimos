@@ -49,6 +49,7 @@ from dimos.msgs.std_msgs import Bool
 from dimos.msgs.vision_msgs import Detection2DArray
 from dimos.navigation.frontier_exploration import wavefront_frontier_explorer
 from dimos.navigation.replanning_a_star.module import replanning_a_star_planner
+
 try:
     # Optional ROS2 navigation module (lazy import so simulation can run without ROS installed).
     from dimos.navigation.rosnav import ros_nav  # type: ignore[import-untyped]

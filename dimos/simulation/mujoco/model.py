@@ -15,8 +15,8 @@
 # limitations under the License.
 
 
-from pathlib import Path
 import json
+from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from etils import epath

@@ -139,7 +139,9 @@ def connect_rerun(
 
         # Skip if Rerun is disabled globally (even if viewer_backend is still set to rerun-*).
         if global_config and not global_config.rerun_enabled:
-            logger.debug("Rerun disabled; skipping connect", viewer_backend=global_config.viewer_backend)
+            logger.debug(
+                "Rerun disabled; skipping connect", viewer_backend=global_config.viewer_backend
+            )
             return
 
         # Skip if foxglove backend selected
