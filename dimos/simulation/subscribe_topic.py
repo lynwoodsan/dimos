@@ -1,4 +1,4 @@
-# Copyright 2025 Dimensional Inc.
+# Copyright 2026 Dimensional Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""MuJoCo simulation backend utilities."""
+import time
 
-from dimos.simulation.manipulators.mujoco_driver import MujocoDriver
-from dimos.simulation.manipulators.mujoco_manip_interface import (
-    MujocoManipInterface,
-)
+from dimos.core.transport import LCMTransport
+from dimos.msgs.sensor_msgs import JointState
 
-__all__ = [
-    "MujocoDriver",
-    "MujocoManipInterface",
-]
+t = LCMTransport("/xarm/joint_states", JointState)
+
+
+def cb(msg: JointState):
+    # print("names:", msg.name)
+    print("pos :", " ".join(f"{x:.4f}" for x in msg.position))
+
+
+t.subscribe(cb)
+
+while True:
+    time.sleep(0.1)

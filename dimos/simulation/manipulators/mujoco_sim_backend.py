@@ -31,6 +31,10 @@ logger = setup_logger()
 class MujocoSimBackend:
     """
     Base class for MuJoCo simulation backend.
+
+    - starts mujoco simulation engine
+    - loads robot/environment into simulation
+    - applies control commands
     """
 
     def __init__(
@@ -40,8 +44,6 @@ class MujocoSimBackend:
         headless: bool = False,
     ):
         """
-        Initialize the MuJoCo simulation backend.
-
         Args:
             robot: Robot description (from robot_descriptions library) name (e.g., "piper", "xarm7_mj_description").
             config_path: Path to a MuJoCo XML or a folder containing scene.xml.
@@ -50,7 +52,7 @@ class MujocoSimBackend:
         self._robot_name = robot
         self._headless = headless
 
-        if config_path:
+        if config_path:  # given config dir/file
             resolved = Path(config_path).expanduser()
             xml_path = resolved / "scene.xml" if resolved.is_dir() else resolved
             if not xml_path.exists():
@@ -58,6 +60,7 @@ class MujocoSimBackend:
             self._model = mujoco.MjModel.from_xml_path(str(xml_path))
         else:
             self._model = load_robot_description(robot)
+
         self._data = mujoco.MjData(self._model)
         self._num_joints = self._model.nq
         timestep = float(self._model.opt.timestep)
@@ -83,8 +86,6 @@ class MujocoSimBackend:
     def _apply_control(self) -> None:
         """
         Apply control commands to MuJoCo actuators.
-
-        Default implementation applies joint position targets directly to actuators.
         """
         with self._lock:
             pos_targets = list(self._joint_position_targets)
@@ -96,8 +97,6 @@ class MujocoSimBackend:
     def _update_joint_state(self) -> None:
         """
         Update internal joint state from MuJoCo simulation.
-
-        Default implementation mirrors MuJoCo state directly.
         """
         with self._lock:
             n_q = min(self._num_joints, self._model.nq)
@@ -139,18 +138,11 @@ class MujocoSimBackend:
     def _sim_loop(self) -> None:
         """
         Main simulation loop running MuJoCo.
-
-        This method:
-        1. Launches the MuJoCo viewer
-        2. Runs the simulation at the specified control frequency
-        3. Calls `_apply_control()` to apply control commands
-        4. Steps the simulation
-        5. Calls `_update_joint_state()` to update internal state
         """
         logger.info(f"{self.__class__.__name__}: sim loop started")
         dt = 1.0 / self._control_frequency
 
-        def _step_once(sync_viewer: bool) -> None:
+        def _step_once(sync_viewer: bool) -> None:  # helper to step sim
             loop_start = time.time()
             self._apply_control()
             mujoco.mj_step(self._model, self._data)
@@ -190,11 +182,6 @@ class MujocoSimBackend:
     def model(self) -> mujoco.MjModel:
         """MuJoCo model (read-only)."""
         return self._model
-
-    @property
-    def data(self) -> mujoco.MjData:
-        """MuJoCo data (read-only)."""
-        return self._data
 
     @property
     def joint_positions(self) -> list[float]:

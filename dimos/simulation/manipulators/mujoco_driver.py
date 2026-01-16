@@ -24,21 +24,21 @@ from reactivex.disposable import Disposable
 from dimos.core import In, Module, Out, rpc
 from dimos.core.module import ModuleConfig
 from dimos.msgs.sensor_msgs import JointCommand, JointState, RobotState
-from dimos.simulation.manipulators.sim_backend import SimBackend
+from dimos.simulation.manipulators.mujoco_manip_interface import MujocoManipInterface
 
 
 @dataclass
-class SimDriverConfig(ModuleConfig):
+class MujocoDriverConfig(ModuleConfig):
     robot: str | None = None
     config_path: str | None = None
     headless: bool = False
 
 
-class SimDriver(Module[SimDriverConfig]):
-    """Module wrapper for MuJoCo simulation backends."""
+class MujocoDriver(Module[MujocoDriverConfig]):
+    """Module wrapper for MuJoCo manipulator simulation."""
 
-    default_config = SimDriverConfig
-    config: SimDriverConfig
+    default_config = MujocoDriverConfig
+    config: MujocoDriverConfig
 
     joint_state: Out[JointState]
     robot_state: Out[RobotState]
@@ -58,8 +58,8 @@ class SimDriver(Module[SimDriverConfig]):
         self._pending_positions: list[float] | None = None
         self._pending_velocities: list[float] | None = None
 
-    def _create_backend(self) -> SimBackend:
-        return SimBackend(
+    def _create_backend(self) -> MujocoManipInterface:
+        return MujocoManipInterface(
             robot=self.config.robot or "",
             config_path=self.config.config_path,
             headless=self.config.headless,
@@ -212,8 +212,8 @@ class SimDriver(Module[SimDriverConfig]):
 
 def get_blueprint() -> dict[str, Any]:
     return {
-        "name": "SimDriver",
-        "class": SimDriver,
+        "name": "MujocoDriver",
+        "class": MujocoDriver,
         "config": {
             "robot": None,
             "config_path": None,
@@ -230,12 +230,12 @@ def get_blueprint() -> dict[str, Any]:
     }
 
 
-simulation = SimDriver.blueprint
+mujoco_sim = MujocoDriver.blueprint
 
 
 __all__ = [
-    "SimDriver",
-    "SimDriverConfig",
+    "MujocoDriver",
+    "MujocoDriverConfig",
     "get_blueprint",
-    "simulation",
+    "mujoco_sim",
 ]

@@ -20,12 +20,12 @@ from typing import Any
 
 from dimos.core import rpc
 from dimos.hardware.manipulators.spec import JointLimits, ManipulatorInfo
-from dimos.simulation.manipulators.sim_backend import SimBackend
-from dimos.simulation.manipulators.sim_driver import SimDriver, SimDriverConfig
+from dimos.simulation.manipulators.mujoco_driver import MujocoDriver, MujocoDriverConfig
+from dimos.simulation.manipulators.mujoco_manip_interface import MujocoManipInterface
 
 
-class XArmSimBackend(SimBackend):
-    """Backend wrapper for xArm simulation using the MuJoCo simulation backend."""
+class XArmSimBackend(MujocoManipInterface):
+    """xArm specific implementation of the MuJoCo manipulator interface."""
 
     def __init__(
         self,
@@ -76,17 +76,17 @@ class XArmSimSDKWrapper(XArmSimBackend):
 
 
 @dataclass
-class XArmSimDriverConfig(SimDriverConfig):
+class XArmSimDriverConfig(MujocoDriverConfig):
     pass
 
 
-class XArmSimDriver(SimDriver):
+class XArmSimDriver(MujocoDriver):
     """xArm simulation driver module using MuJoCo backend."""
 
     default_config = XArmSimDriverConfig
     config: XArmSimDriverConfig
 
-    def _create_backend(self) -> SimBackend:
+    def _create_backend(self) -> MujocoManipInterface:
         return XArmSimBackend(
             robot=self.config.robot or "",
             config_path=self.config.config_path,

@@ -20,9 +20,9 @@ from dimos.msgs.sensor_msgs import (  # type: ignore[attr-defined]
     RobotState,
 )
 from dimos.msgs.trajectory_msgs import JointTrajectory
-from dimos.simulation.manipulators.sim_driver import simulation
+from dimos.simulation.manipulators.mujoco_driver import mujoco_sim
 
-xarm7_trajectory_sim = simulation(
+xarm7_trajectory_sim = mujoco_sim(
     robot="xarm7_mj_description",
     config_path=None,
     headless=True,

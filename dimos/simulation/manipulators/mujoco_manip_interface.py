@@ -12,17 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Robot-agnostic MuJoCo simulation backend."""
+"""MuJoCo simulation adapter wrapper."""
 
 import logging
 import math
 
 from dimos.hardware.manipulators.spec import ControlMode, JointLimits, ManipulatorInfo
-from dimos.simulation.manipulators import MujocoSimBackend
+from dimos.simulation.manipulators.mujoco_sim_backend import MujocoSimBackend
 
 
-class SimBackend:
-    """Backend wrapper for a generic MuJoCo simulation."""
+class MujocoManipInterface:
+    """
+    Adapter wrapper around a MuJoCo simulation backend to provide a uniform interface for all manipulators.
+    """
 
     def __init__(
         self,
@@ -42,10 +44,6 @@ class SimBackend:
         self._control_mode = ControlMode.POSITION
         self._error_code = 0
         self._error_message = ""
-
-    # =========================================================================
-    # Connection
-    # =========================================================================
 
     def connect(self) -> bool:
         """Connect to the MuJoCo simulation backend."""
@@ -85,10 +83,6 @@ class SimBackend:
 
     def is_connected(self) -> bool:
         return bool(self._connected and self._native and self._native.connected)
-
-    # =========================================================================
-    # Info
-    # =========================================================================
 
     def get_info(self) -> ManipulatorInfo:
         return ManipulatorInfo(
@@ -130,20 +124,12 @@ class SimBackend:
             velocity_max=[max_vel_rad] * self._dof,
         )
 
-    # =========================================================================
-    # Control Mode
-    # =========================================================================
-
     def set_control_mode(self, mode: ControlMode) -> bool:
         self._control_mode = mode
         return True
 
     def get_control_mode(self) -> ControlMode:
         return self._control_mode
-
-    # =========================================================================
-    # State Reading
-    # =========================================================================
 
     def read_joint_positions(self) -> list[float]:
         if self._native:
@@ -171,10 +157,6 @@ class SimBackend:
 
     def read_error(self) -> tuple[int, str]:
         return self._error_code, self._error_message
-
-    # =========================================================================
-    # Motion Control (Joint Space)
-    # =========================================================================
 
     def write_joint_positions(
         self,
@@ -204,10 +186,6 @@ class SimBackend:
         self._native.hold_current_position()
         return True
 
-    # =========================================================================
-    # Servo Control
-    # =========================================================================
-
     def write_enable(self, enable: bool) -> bool:
         self._servos_enabled = enable
         return True
@@ -219,10 +197,6 @@ class SimBackend:
         self._error_code = 0
         self._error_message = ""
         return True
-
-    # =========================================================================
-    # Optional Interfaces
-    # =========================================================================
 
     def read_cartesian_position(self) -> dict[str, float] | None:
         return None
@@ -247,11 +221,11 @@ class SimBackend:
         return None
 
 
-class SimSDKWrapper(SimBackend):
-    """Backward-compatible alias for SimBackend."""
+class MujocoManipSDKWrapper(MujocoManipInterface):
+    """Backward-compatible alias for MujocoManipInterface."""
 
 
 __all__ = [
-    "SimBackend",
-    "SimSDKWrapper",
+    "MujocoManipInterface",
+    "MujocoManipSDKWrapper",
 ]
