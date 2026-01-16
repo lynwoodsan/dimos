@@ -20,7 +20,7 @@ from dimos.msgs.sensor_msgs.Image import Image, ImageFormat
 from dimos.protocol.pubsub.benchmark.type import TestCase
 from dimos.protocol.pubsub.lcmpubsub import LCM, LCMPubSubBase, Topic as LCMTopic
 from dimos.protocol.pubsub.memory import Memory
-from dimos.protocol.pubsub.shmpubsub import PickleSharedMemory
+from dimos.protocol.pubsub.shmpubsub import PickleSharedMemory, SharedMemory
 
 
 def make_data(size: int) -> bytes:
@@ -142,6 +142,48 @@ testdata.append(
     TestCase(
         pubsub_context=shm_pubsub_channel,
         msg_gen=shm_msggen,
+    )
+)
+
+
+@contextmanager
+def shm_bytes_pubsub_channel() -> Generator[SharedMemory, None, None]:
+    """SharedMemory with raw bytes - no pickle overhead."""
+    shm_pubsub = SharedMemory(prefer="cpu", default_capacity=12 * 1024 * 1024)
+    shm_pubsub.start()
+    yield shm_pubsub
+    shm_pubsub.stop()
+
+
+def shm_bytes_msggen(size: int) -> tuple[str, bytes]:
+    """Generate raw bytes for SharedMemory transport benchmark."""
+    return ("benchmark/shm_bytes", make_data(size))
+
+
+testdata.append(
+    TestCase(
+        pubsub_context=shm_bytes_pubsub_channel,
+        msg_gen=shm_bytes_msggen,
+    )
+)
+
+
+from dimos.protocol.pubsub.shmpubsub import LCMSharedMemory
+
+
+@contextmanager
+def shm_lcm_pubsub_channel() -> Generator[LCMSharedMemory, None, None]:
+    """SharedMemory with LCM binary encoding - no pickle overhead."""
+    shm_pubsub = LCMSharedMemory(prefer="cpu", default_capacity=12 * 1024 * 1024)
+    shm_pubsub.start()
+    yield shm_pubsub
+    shm_pubsub.stop()
+
+
+testdata.append(
+    TestCase(
+        pubsub_context=shm_lcm_pubsub_channel,
+        msg_gen=lcm_msggen,  # Reuse the LCM message generator
     )
 )
 

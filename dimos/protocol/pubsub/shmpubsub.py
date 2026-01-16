@@ -329,3 +329,47 @@ class PickleSharedMemory(
     """SharedMemory pubsub that transports arbitrary Python objects via pickle."""
 
     ...
+
+
+# --------------------------------------------------------------------------------------
+# LCM-encoded SharedMemory (uses LCM binary format over SHM transport)
+# --------------------------------------------------------------------------------------
+
+from dimos.protocol.pubsub.lcmpubsub import LCMEncoderMixin, Topic
+
+
+class LCMSharedMemoryPubSubBase(PubSub[Topic, Any]):
+    """SharedMemory pubsub that uses LCM Topic type, delegating to SharedMemoryPubSubBase."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__()
+        self._shm = SharedMemoryPubSubBase(**kwargs)
+
+    def start(self) -> None:
+        self._shm.start()
+
+    def stop(self) -> None:
+        self._shm.stop()
+
+    def publish(self, topic: Topic, message: bytes) -> None:
+        self._shm.publish(str(topic), message)
+
+    def subscribe(
+        self, topic: Topic, callback: Callable[[bytes, Topic], Any]
+    ) -> Callable[[], None]:
+        def wrapper(msg: bytes, _: str) -> None:
+            callback(msg, topic)
+
+        return self._shm.subscribe(str(topic), wrapper)
+
+    def reconfigure(self, topic: Topic, *, capacity: int) -> dict:  # type: ignore[type-arg]
+        return self._shm.reconfigure(str(topic), capacity=capacity)
+
+
+class LCMSharedMemory(
+    LCMEncoderMixin,
+    LCMSharedMemoryPubSubBase,
+):
+    """SharedMemory pubsub that uses LCM binary encoding (no pickle overhead)."""
+
+    ...
