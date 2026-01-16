@@ -17,7 +17,7 @@ from typing import Any
 
 from dimos.msgs.sensor_msgs.Image import Image, ImageFormat
 from dimos.protocol.pubsub.benchmark.type import TestCase, TestData
-from dimos.protocol.pubsub.lcmpubsub import LCM, Topic as LCMTopic
+from dimos.protocol.pubsub.lcmpubsub import LCM, LCMPubSubBase, Topic as LCMTopic
 from dimos.protocol.pubsub.memory import Memory
 from dimos.protocol.pubsub.shmpubsub import PickleSharedMemory
 
@@ -65,6 +65,29 @@ testdata.append(
 
 
 @contextmanager
+def lcm_raw_pubsub_channel():
+    """LCM with raw bytes - no encoding overhead."""
+    lcm_pubsub = LCMPubSubBase(autoconf=True)
+    lcm_pubsub.start()
+    yield lcm_pubsub
+    lcm_pubsub.stop()
+
+
+def lcm_raw_msggen(size: int) -> tuple[LCMTopic, bytes]:
+    """Generate raw bytes for LCM transport benchmark."""
+    topic = LCMTopic(topic="benchmark/lcm_raw")
+    return (topic, make_data(size))
+
+
+testdata.append(
+    TestCase(
+        pubsub_context=lcm_raw_pubsub_channel,
+        msg_gen=lcm_raw_msggen,
+    )
+)
+
+
+@contextmanager
 def memory_pubsub_channel():
     """Context manager for Memory PubSub implementation."""
     yield Memory()
@@ -83,12 +106,12 @@ def memory_msggen(size: int) -> tuple[str, Any]:
     return ("benchmark/memory", Image(data=data, format=ImageFormat.RGB))
 
 
-testdata.append(
-    TestCase(
-        pubsub_context=memory_pubsub_channel,
-        msg_gen=memory_msggen,
-    )
-)
+# testdata.append(
+#     TestCase(
+#         pubsub_context=memory_pubsub_channel,
+#         msg_gen=memory_msggen,
+#     )
+# )
 
 
 @contextmanager
