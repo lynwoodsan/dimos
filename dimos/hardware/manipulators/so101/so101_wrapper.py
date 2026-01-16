@@ -182,8 +182,8 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             self.configure_motors()
             self._connected = True
             return True
-        except Exception:
-            self.logger.error("Failed to connect to SO-101 arm")
+        except Exception as e:
+            self.logger.error(f"Failed to connect to SO-101 arm: {e}")
             return False
 
     def disconnect(self) -> None:
@@ -402,13 +402,13 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         Returns:
             True if servos enabled
         """
-        if self.bus:
-            with self._lock:
-                self.bus.enable_torque()
-            self._enabled = True
-            return True
-        else:
+        if not self.bus:
             return False
+        with self._lock:
+            self.bus.enable_torque()
+        self._enabled = True
+        return True
+
 
     def disable_servos(self) -> bool:
         """Disable motor control.
@@ -416,11 +416,12 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         Returns:
             True if servos disabled
         """
-        if self.bus:
-            with self._lock:
-                self.bus.disable_torque()
-            self._enabled = False
-            return True
+        if not self.bus:
+            return False
+        with self._lock:
+            self.bus.disable_torque()
+        self._enabled = False
+        return True
 
     def are_servos_enabled(self) -> bool:
         """Check if servos are enabled.
@@ -603,7 +604,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         Get gripper position.
 
         Returns:
-            Position in meters( 0.0 [closed] to 0.1 [open]) or None
+            Position in meters ( 0.0 [closed] to 0.1 [open]) or None
         """
         if not self.bus:
             return None
@@ -690,7 +691,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
                 current = self.get_cartesian_position()
                 if current:
                     # Check if reached target (within tolerance)
-                    tol_pos = 0.01  # 5mm
+                    tol_pos = 0.01  # 1cm
                     tol_rot = 0.1  # ~3 degrees
 
                     if (

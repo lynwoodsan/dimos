@@ -33,7 +33,6 @@ class LerobotKinematics:
         * FK:    q -> (pos, quat_wxyz)  [q in degrees]
         * IK:    (q_init, target_pos, target_quat_wxyz) -> q_sol  [degrees]
         * J:     jacobian(q)  [q in radians, uses numerical differentiation]
-        * dls:   joint_velocity(q, twist) -> dq  [q in radians]
 
     Note: FK/IK work in degrees (matching lerobot convention), while
     jacobian/joint_velocity work in radians for compatibility with existing code.
