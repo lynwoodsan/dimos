@@ -252,7 +252,7 @@ class Dimos2RosMixin(PubSubEncoderMixin[TopicT, DimosMessage, ROSMessage]):
 
 class DimosROS(
     RawROS,
-    Dimos2RosMixin[ROSTopic, Any],
+    Dimos2RosMixin[ROSTopic],
 ):
     """ROS PubSub with automatic dimos.msgs ↔ ROS message conversion."""
 

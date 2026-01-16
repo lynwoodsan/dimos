@@ -116,10 +116,33 @@ def memory_msggen(size: int) -> tuple[str, Any]:
 
 @contextmanager
 def shm_pubsub_channel():
-    shm_pubsub = PickleSharedMemory(prefer="cpu")
+    # 12MB capacity to handle benchmark sizes up to 10MB
+    shm_pubsub = PickleSharedMemory(prefer="cpu", default_capacity=12 * 1024 * 1024)
     shm_pubsub.start()
     yield shm_pubsub
     shm_pubsub.stop()
+
+
+def shm_msggen(size: int) -> tuple[str, Any]:
+    """Generate message for SharedMemory pubsub benchmark."""
+    import numpy as np
+
+    data = np.frombuffer(make_data(size), dtype=np.uint8).reshape(-1)
+    padded_size = ((len(data) + 2) // 3) * 3
+    data = np.pad(data, (0, padded_size - len(data)))
+    pixels = len(data) // 3
+    height = max(1, int(pixels**0.5))
+    width = pixels // height
+    data = data[: height * width * 3].reshape(height, width, 3)
+    return ("benchmark/shm", Image(data=data, format=ImageFormat.RGB))
+
+
+testdata.append(
+    TestCase(
+        pubsub_context=shm_pubsub_channel,
+        msg_gen=shm_msggen,
+    )
+)
 
 
 try:

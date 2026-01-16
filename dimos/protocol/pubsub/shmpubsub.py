@@ -295,7 +295,7 @@ class SharedMemoryPubSubBase(PubSub[str, Any]):
 # --------------------------------------------------------------------------------------
 
 
-class SharedMemoryBytesEncoderMixin(PubSubEncoderMixin[str, bytes]):
+class SharedMemoryBytesEncoderMixin(PubSubEncoderMixin[str, bytes, bytes]):
     """Identity encoder for raw bytes."""
 
     def encode(self, msg: bytes, _: str) -> bytes:
