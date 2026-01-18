@@ -108,7 +108,7 @@ def _set_net_value(commands_needed: list[str], sudo: str, name: str, value: int)
 
 
 TARGET_RMEM_SIZE = 67108864
-TARGET_RMEM_SIZE_MACOS = 2097152  # why not 67108864 ?
+TARGET_RMEM_SIZE_MACOS = 2097152  # why not 67108864? this makes the transport worse
 TARGET_MAX_SOCKET_BUFFER_SIZE_MACOS = 8388608
 TARGET_MAX_DGRAM_SIZE_MACOS = 65535
 
