@@ -85,13 +85,13 @@ class LerobotKinematics:
     # ------------------------------------------------------------------
     # Forward Kinematics
     # ------------------------------------------------------------------
-    def fk(self, q: list[float]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    def fk(self, positions: list[float]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """
         Forward kinematics: joint vector -> (position, quaternion_wxyz).
 
         Parameters
         ----------
-        q:
+        positions:
             Joint configuration in degrees, shape (dof,).
 
         Returns
@@ -101,7 +101,7 @@ class LerobotKinematics:
         quat_wxyz:
             End-effector orientation quaternion (w, x, y, z), shape (4,).
         """
-        q = np.asarray(q, dtype=float).reshape(-1)
+        q = np.asarray(positions, dtype=float).reshape(-1)
         if q.shape[0] != self.dof:
             raise ValueError(f"Expected {self.dof} DoF, got {q.shape[0]}")
         T = self._lerobot_kin.forward_kinematics(q)
@@ -118,9 +118,9 @@ class LerobotKinematics:
     # ------------------------------------------------------------------
     def ik(
         self,
-        q_init: list[float],
-        target_pos: list[float],
-        target_quat_wxyz: list[float],
+        positions: list[float],
+        target_position: list[float],
+        target_quaternion_wxyz: list[float],
         position_weight: float = 1.0,
         orientation_weight: float = 1.0,
     ) -> NDArray[np.float64]:
@@ -132,11 +132,11 @@ class LerobotKinematics:
 
         Parameters
         ----------
-        q_init:
+        positions:
             Initial joint configuration in degrees, shape (dof,).
-        target_pos:
+        target_position:
             Target position in world frame (meters), shape (3,).
-        target_quat_wxyz:
+        target_quaternion_wxyz:
             Target orientation quaternion (w, x, y, z), shape (4,).
         position_weight:
             Weight for position error (default 1.0).
@@ -148,11 +148,11 @@ class LerobotKinematics:
         q_sol:
             Joint vector in degrees, shape (dof,), in the same order as `joint_names`.
         """
-        q_init = np.asarray(q_init, dtype=float).reshape(-1)
+        q_init = np.asarray(positions, dtype=float).reshape(-1)
         if q_init.shape[0] != self.dof:
             raise ValueError(f"Expected {self.dof} DoF, got {q_init.shape[0]}")
-        target_pos = np.asarray(target_pos, dtype=float).reshape(3)
-        target_quat_wxyz = np.asarray(target_quat_wxyz, dtype=float).reshape(4)
+        target_pos = np.asarray(target_position, dtype=float).reshape(3)
+        target_quat_wxyz = np.asarray(target_quaternion_wxyz, dtype=float).reshape(4)
 
         target_quat_xyzw = np.array(
             [target_quat_wxyz[1], target_quat_wxyz[2], target_quat_wxyz[3], target_quat_wxyz[0]],
@@ -200,7 +200,7 @@ class LerobotKinematics:
             twist = np.concatenate(
                 [position_weight * pos_error, orientation_weight * orientation_error]
             )
-            J = self.jacobian(q)
+            J = self.jacobian(q.tolist())
 
             JJt = J @ J.T
             A = JJt + (self._damping**2) * np.eye(6, dtype=float)
@@ -225,7 +225,7 @@ class LerobotKinematics:
     # ------------------------------------------------------------------
     # Jacobian & velocity-level control
     # ------------------------------------------------------------------
-    def jacobian(self, q: list[float]) -> NDArray[np.float64]:
+    def jacobian(self, positions: list[float]) -> NDArray[np.float64]:
         """
         Return the 6 x dof geometric Jacobian at configuration q.
 
@@ -233,7 +233,7 @@ class LerobotKinematics:
 
         Parameters
         ----------
-        q:
+        positions:
             Joint configuration in radians, shape (dof,).
 
         Returns
@@ -243,7 +243,7 @@ class LerobotKinematics:
             First 3 rows: linear velocity (vx, vy, vz)
             Last 3 rows: angular velocity (wx, wy, wz)
         """
-        q = np.asarray(q, dtype=float).reshape(-1)
+        q = np.asarray(positions, dtype=float).reshape(-1)
         if q.shape[0] != self.dof:
             raise ValueError(f"Expected {self.dof} DoF, got {q.shape[0]}")
         q_deg = np.degrees(q)
