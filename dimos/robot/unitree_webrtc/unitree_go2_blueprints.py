@@ -24,8 +24,7 @@ from dimos_lcm.foxglove_msgs.SceneUpdate import SceneUpdate  # type: ignore[impo
 
 from dimos.agents.agent import llm_agent
 from dimos.agents.cli.human import human_input
-
-# from dimos.agents.cli.web import web_input
+from dimos.agents.cli.web import web_input
 from dimos.agents.ollama_agent import ollama_installed
 from dimos.agents.skills.navigation import navigation_skill
 from dimos.agents.skills.speak_skill import speak_skill
@@ -187,7 +186,7 @@ _common_agentic = autoconnect(
     human_input(),
     navigation_skill(),
     unitree_skills(),
-    # web_input(),
+    web_input(),
     speak_skill(),
 )
 
