@@ -29,7 +29,7 @@ from reactivex import (
 from reactivex.observable import Observable
 from reactivex.scheduler import TimeoutScheduler
 
-from dimos.utils.data import _get_data_dir, get_data
+from dimos.utils.data import get_data, get_data_dir
 
 T = TypeVar("T")
 
@@ -120,7 +120,7 @@ class SensorStorage(Generic[T]):
         self.cnt = 0
 
         # Create storage directory in the data dir
-        self.root_dir = _get_data_dir() / name
+        self.root_dir = get_data_dir() / name
 
         # Check if directory exists and is not empty
         if self.root_dir.exists():
