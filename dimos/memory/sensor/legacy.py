@@ -16,13 +16,13 @@
 Compatible with TimedSensorReplay/TimedSensorStorage file format.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 import glob
 import os
 from pathlib import Path
 import pickle
 import re
-from typing import cast
+from typing import Any, cast
 
 from dimos.memory.sensor.base import SensorStore, T
 from dimos.utils.data import get_data, get_data_dir
@@ -50,14 +50,17 @@ class LegacyPickleStore(SensorStore[T]):
         store.save(image)  # uses image.ts for timestamp
     """
 
-    def __init__(self, name: str | Path) -> None:
+    def __init__(self, name: str | Path, autocast: Callable[[Any], T] | None = None) -> None:
         """
         Args:
             name: Data directory name (e.g. "unitree_go2_bigoffice/lidar") or absolute path.
+            autocast: Optional function to transform data after loading (for replay) or
+                      before saving (for storage). E.g., `Odometry.from_msg`.
         """
         self._name = str(name)
         self._root_dir: Path | None = None
         self._counter: int = 0
+        self._autocast = autocast
 
     def _get_root_dir(self, for_write: bool = False) -> Path:
         """Get root directory, creating on first write if needed."""
@@ -147,6 +150,9 @@ class LegacyPickleStore(SensorStore[T]):
                 continue
             if end is not None and ts >= end:
                 break
+
+            if self._autocast is not None:
+                data = self._autocast(data)
             yield (ts, cast("T", data))
 
     def _find_closest_timestamp(

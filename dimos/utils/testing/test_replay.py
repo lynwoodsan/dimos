@@ -23,27 +23,9 @@ from dimos.utils.data import get_data
 from dimos.utils.testing import replay
 
 
-def test_sensor_replay() -> None:
-    counter = 0
-    for message in replay.SensorReplay(name="office_lidar").iterate():
-        counter += 1
-        assert isinstance(message, dict)
-    assert counter == 500
-
-
-def test_sensor_replay_cast() -> None:
-    counter = 0
-    for message in replay.SensorReplay(
-        name="office_lidar", autocast=pointcloud2_from_webrtc_lidar
-    ).iterate():
-        counter += 1
-        assert isinstance(message, PointCloud2)
-    assert counter == 500
-
-
 def test_timed_sensor_replay() -> None:
     get_data("unitree_office_walk")
-    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom", autocast=Odometry.from_msg)
+    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom")
 
     itermsgs = []
     for msg in odom_store.iterate():
@@ -69,7 +51,7 @@ def test_timed_sensor_replay() -> None:
 
 def test_iterate_ts_no_seek() -> None:
     """Test iterate_ts without seek (start_timestamp=None)"""
-    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom", autocast=Odometry.from_msg)
+    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom")
 
     # Test without seek
     ts_msgs = []
@@ -87,7 +69,7 @@ def test_iterate_ts_no_seek() -> None:
 
 def test_iterate_ts_with_from_timestamp() -> None:
     """Test iterate_ts with from_timestamp (absolute timestamp)"""
-    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom", autocast=Odometry.from_msg)
+    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom")
 
     # First get all messages to find a good seek point
     all_msgs = []
@@ -115,7 +97,7 @@ def test_iterate_ts_with_from_timestamp() -> None:
 
 def test_iterate_ts_with_relative_seek() -> None:
     """Test iterate_ts with seek (relative seconds after first timestamp)"""
-    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom", autocast=Odometry.from_msg)
+    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom")
 
     # Get first few messages to understand timing
     all_msgs = []
@@ -144,7 +126,7 @@ def test_iterate_ts_with_relative_seek() -> None:
 
 def test_stream_with_seek() -> None:
     """Test stream method with seek parameters"""
-    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom", autocast=Odometry.from_msg)
+    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom")
 
     # Test stream with relative seek
     msgs_with_seek = []
@@ -170,7 +152,7 @@ def test_stream_with_seek() -> None:
 
 def test_duration_with_loop() -> None:
     """Test duration parameter with looping in TimedSensorReplay"""
-    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom", autocast=Odometry.from_msg)
+    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom")
 
     # Collect timestamps from a small duration window
     collected_ts = []
@@ -225,7 +207,7 @@ def test_first_methods() -> None:
     assert abs(first_msg.ts - first_from_iterate.ts) < 1.0  # Within 1 second tolerance
 
     # Test TimedSensorReplay.first_timestamp()
-    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom", autocast=Odometry.from_msg)
+    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom")
     first_ts = odom_store.first_timestamp()
     assert first_ts is not None
     assert isinstance(first_ts, float)
@@ -242,7 +224,7 @@ def test_first_methods() -> None:
 
 def test_find_closest() -> None:
     """Test find_closest method in TimedSensorReplay"""
-    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom", autocast=Odometry.from_msg)
+    odom_store = replay.TimedSensorReplay("unitree_office_walk/odom")
 
     # Get some reference timestamps
     timestamps = []
