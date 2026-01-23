@@ -20,6 +20,7 @@ import os
 import re
 import resource
 import subprocess
+import sys
 from typing import Any
 
 # ----------------------------- sudo helpers -----------------------------
@@ -112,10 +113,13 @@ def configure_system(checks: list[SystemConfigurator], check_only: bool = False)
     if check_only:
         return
 
-    try:
-        answer = input("Apply these changes now? [y/N]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        answer = ""
+    if not sys.stdin.isatty():
+        answer = "y"
+    else:
+        try:
+            answer = input("Apply these changes now? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
 
     if answer not in ("y", "yes"):
         if any(check.critical for check in failing):
