@@ -31,11 +31,17 @@ from typing import Any
 
 from reactivex import Subject, interval
 from reactivex.disposable import Disposable
+import rerun as rr
+import rerun.blueprint as rrb
 
 from dimos.agents import skill
 from dimos.core import In, rpc
+
+# Add these imports near the top with other imports
+from dimos.core.global_config import GlobalConfig
 from dimos.core.module import ModuleConfig
 from dimos.core.skill_module import SkillModule
+from dimos.dashboard.rerun_init import connect_rerun
 from dimos.models.vl.base import VlModel
 from dimos.msgs.sensor_msgs import Image
 from dimos.msgs.sensor_msgs.Image import sharpness_barrier
@@ -113,12 +119,16 @@ class TemporalMemory(SkillModule):
     color_image: In[Image]
 
     def __init__(
-        self, vlm: VlModel | None = None, config: TemporalMemoryConfig | None = None
+        self,
+        vlm: VlModel | None = None,
+        config: TemporalMemoryConfig | None = None,
+        global_config: GlobalConfig | None = None,
     ) -> None:
         super().__init__()
 
         self._vlm = vlm  # Can be None for blueprint usage
         self.config: TemporalMemoryConfig = config or TemporalMemoryConfig()
+        self._global_config = global_config  # Store it
 
         # single lock protects all state
         self._state_lock = threading.Lock()
@@ -203,12 +213,23 @@ class TemporalMemory(SkillModule):
     def start(self) -> None:
         super().start()
 
+        # Connect to Rerun if backend is Rerun
+        if self._global_config and self._global_config.viewer_backend.startswith("rerun"):
+            connect_rerun(global_config=self._global_config)
+
         with self._state_lock:
             self._stopped = False
             if self._video_start_wall_time is None:
                 self._video_start_wall_time = time.time()
 
         def on_frame(image: Image) -> None:
+            # Log image to Rerun if enabled
+            if self._global_config and self._global_config.viewer_backend.startswith("rerun"):
+                try:
+                    rr.log("world/temporal_memory/camera/rgb", image.to_rerun())
+                except Exception as e:
+                    logger.debug(f"Failed to log image to Rerun: {e}")
+
             with self._state_lock:
                 video_start = self._video_start_wall_time
                 if video_start is None:
@@ -659,6 +680,16 @@ class TemporalMemory(SkillModule):
         except Exception as e:
             logger.error(f"save frames failed: {e}", exc_info=True)
             return False
+
+    @classmethod
+    def rerun_views(cls) -> list[Any]:  # type: ignore[no-untyped-def]
+        """Return Rerun view blueprints for temporal memory camera visualization."""
+        return [
+            rrb.Spatial2DView(
+                name="Temporal Memory Camera",
+                origin="world/temporal_memory/camera/rgb",
+            ),
+        ]
 
 
 temporal_memory = TemporalMemory.blueprint
