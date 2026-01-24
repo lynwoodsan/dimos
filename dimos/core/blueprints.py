@@ -45,7 +45,7 @@ class ModuleConnection:
 
 
 @dataclass(frozen=True)
-class ModuleBlueprint:
+class _BlueprintAtom:
     module: type[Module]
     connections: tuple[ModuleConnection, ...]
     args: tuple[Any]
@@ -73,14 +73,14 @@ class ModuleBlueprint:
             type_ = get_args(annotation)[0]
             connections.append(ModuleConnection(name=name, type=type_, direction=direction))  # type: ignore[arg-type]
 
-        return ModuleBlueprint(
+        return _BlueprintAtom(
             module=module, connections=tuple(connections), args=args, kwargs=kwargs
         )
 
 
 @dataclass(frozen=True)
-class ModuleBlueprintSet:
-    blueprints: tuple[ModuleBlueprint, ...]
+class Blueprint:
+    blueprints: tuple[_BlueprintAtom, ...]
     # TODO: Replace Any
     transport_map: Mapping[tuple[str, type], Any] = field(
         default_factory=lambda: MappingProxyType({})
@@ -93,11 +93,11 @@ class ModuleBlueprintSet:
 
     @staticmethod
     def create(self, module: type[Module], *args: tuple[Any], **kwargs: dict[str, Any]) -> Self:
-        blueprint = ModuleBlueprint.create(module, args, kwargs)
-        return ModuleBlueprintSet(blueprints=(blueprint,))
+        blueprint = _BlueprintAtom.create(module, args, kwargs)
+        return Blueprint(blueprints=(blueprint,))
 
-    def transports(self, transports: dict[tuple[str, type], Any]) -> "ModuleBlueprintSet":
-        return ModuleBlueprintSet(
+    def transports(self, transports: dict[tuple[str, type], Any]) -> "Blueprint":
+        return Blueprint(
             blueprints=self.blueprints,
             transport_map=MappingProxyType({**self.transport_map, **transports}),
             global_config_overrides=self.global_config_overrides,
@@ -105,8 +105,8 @@ class ModuleBlueprintSet:
             requirement_checks=self.requirement_checks,
         )
 
-    def global_config(self, **kwargs: Any) -> "ModuleBlueprintSet":
-        return ModuleBlueprintSet(
+    def global_config(self, **kwargs: Any) -> "Blueprint":
+        return Blueprint(
             blueprints=self.blueprints,
             transport_map=self.transport_map,
             global_config_overrides=MappingProxyType({**self.global_config_overrides, **kwargs}),
@@ -114,12 +114,12 @@ class ModuleBlueprintSet:
             requirement_checks=self.requirement_checks,
         )
 
-    def remappings(self, remappings: list[tuple[type[Module], str, str]]) -> "ModuleBlueprintSet":
+    def remappings(self, remappings: list[tuple[type[Module], str, str]]) -> "Blueprint":
         remappings_dict = dict(self.remapping_map)
         for module, old, new in remappings:
             remappings_dict[(module, old)] = new
 
-        return ModuleBlueprintSet(
+        return Blueprint(
             blueprints=self.blueprints,
             transport_map=self.transport_map,
             global_config_overrides=self.global_config_overrides,
@@ -127,8 +127,8 @@ class ModuleBlueprintSet:
             requirement_checks=self.requirement_checks,
         )
 
-    def requirements(self, *checks: Callable[[], str | None]) -> "ModuleBlueprintSet":
-        return ModuleBlueprintSet(
+    def requirements(self, *checks: Callable[[], str | None]) -> "Blueprint":
+        return Blueprint(
             blueprints=self.blueprints,
             transport_map=self.transport_map,
             global_config_overrides=self.global_config_overrides,
@@ -429,7 +429,7 @@ class ModuleBlueprintSet:
         return module_coordinator
 
 
-def autoconnect(*blueprints: ModuleBlueprintSet) -> ModuleBlueprintSet:
+def autoconnect(*blueprints: Blueprint) -> Blueprint:
     all_blueprints = tuple(_eliminate_duplicates([bp for bs in blueprints for bp in bs.blueprints]))
     all_transports = dict(  # type: ignore[var-annotated]
         reduce(operator.iadd, [list(x.transport_map.items()) for x in blueprints], [])
@@ -442,7 +442,7 @@ def autoconnect(*blueprints: ModuleBlueprintSet) -> ModuleBlueprintSet:
     )
     all_requirement_checks = tuple(check for bs in blueprints for check in bs.requirement_checks)
 
-    return ModuleBlueprintSet(
+    return Blueprint(
         blueprints=all_blueprints,
         transport_map=MappingProxyType(all_transports),
         global_config_overrides=MappingProxyType(all_config_overrides),
@@ -451,7 +451,7 @@ def autoconnect(*blueprints: ModuleBlueprintSet) -> ModuleBlueprintSet:
     )
 
 
-def _eliminate_duplicates(blueprints: list[ModuleBlueprint]) -> list[ModuleBlueprint]:
+def _eliminate_duplicates(blueprints: list[_BlueprintAtom]) -> list[_BlueprintAtom]:
     # The duplicates are eliminated in reverse so that newer blueprints override older ones.
     seen = set()
     unique_blueprints = []

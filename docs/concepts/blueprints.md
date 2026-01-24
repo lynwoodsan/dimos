@@ -1,20 +1,20 @@
 # Blueprints
 
-Blueprints (`ModuleBlueprint`) are instructions for how to initialize a `Module`.
+Blueprints (`_BlueprintAtom`) are instructions for how to initialize a `Module`.
 
-You don't typically want to run a single module, so multiple blueprints are handled together in `ModuleBlueprintSet`.
+You don't typically want to run a single module, so multiple blueprints are handled together in `Blueprint`.
 
-You create a `ModuleBlueprintSet` from a single module (say `ConnectionModule`) with:
+You create a `Blueprint` from a single module (say `ConnectionModule`) with:
 
 ```python session=blueprint-ex1
-from dimos.core.blueprints import ModuleBlueprintSet
+from dimos.core.blueprints import Blueprint
 from dimos.core import Module, rpc
 
 class ConnectionModule(Module):
     def __init__(self, arg1, arg2, kwarg='value') -> None:
         super().__init__()
 
-blueprint = ModuleBlueprintSet.create(ConnectionModule, 'arg1', 'arg2', kwarg='value')
+blueprint = Blueprint.create(ConnectionModule, 'arg1', 'arg2', kwarg='value')
 ```
 
 But the same thing can be accomplished more succinctly as:
@@ -57,7 +57,7 @@ blueprint = autoconnect(
 )
 ```
 
-`blueprint` itself is a `ModuleBlueprintSet` so you can link it with other modules:
+`blueprint` itself is a `Blueprint` so you can link it with other modules:
 
 ```python session=blueprint-ex1
 class Module4(Module):
@@ -99,7 +99,7 @@ Imagine you have this code:
 ```python session=blueprint-ex1
 from functools import partial
 
-from dimos.core.blueprints import ModuleBlueprintSet, autoconnect
+from dimos.core.blueprints import Blueprint, autoconnect
 from dimos.core import Module, rpc, Out, In
 from dimos.msgs.sensor_msgs import Image
 
@@ -111,8 +111,8 @@ class ModuleB(Module):
     image: In[Image]
     begin_explore: In[bool]
 
-module_a = partial(ModuleBlueprintSet.create, ModuleA)
-module_b = partial(ModuleBlueprintSet.create, ModuleB)
+module_a = partial(Blueprint.create, ModuleA)
+module_b = partial(Blueprint.create, ModuleB)
 
 autoconnect(module_a(), module_b())
 ```

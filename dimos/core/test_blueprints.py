@@ -20,9 +20,9 @@ from dimos.core._test_future_annotations_helper import (
     FutureModuleOut,
 )
 from dimos.core.blueprints import (
-    ModuleBlueprint,
-    ModuleBlueprintSet,
+    Blueprint,
     ModuleConnection,
+    _BlueprintAtom,
     _make_module_blueprint,
     autoconnect,
 )
@@ -104,7 +104,7 @@ module_c = ModuleC.blueprint
 
 
 def test_get_connection_set() -> None:
-    assert _make_module_blueprint(CatModule, args=("arg1"), kwargs={"k": "v"}) == ModuleBlueprint(
+    assert _make_module_blueprint(CatModule, args=("arg1"), kwargs={"k": "v"}) == _BlueprintAtom(
         module=CatModule,
         connections=(
             ModuleConnection(name="pet_cat", type=Petting, direction="in"),
@@ -118,9 +118,9 @@ def test_get_connection_set() -> None:
 def test_autoconnect() -> None:
     blueprint_set = autoconnect(module_a(), module_b())
 
-    assert blueprint_set == ModuleBlueprintSet(
+    assert blueprint_set == Blueprint(
         blueprints=(
-            ModuleBlueprint(
+            _BlueprintAtom(
                 module=ModuleA,
                 connections=(
                     ModuleConnection(name="data1", type=Data1, direction="out"),
@@ -129,7 +129,7 @@ def test_autoconnect() -> None:
                 args=(),
                 kwargs={},
             ),
-            ModuleBlueprint(
+            _BlueprintAtom(
                 module=ModuleB,
                 connections=(
                     ModuleConnection(name="data1", type=Data1, direction="in"),
