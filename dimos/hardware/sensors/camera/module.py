@@ -62,9 +62,7 @@ class CameraModule(Module[CameraModuleConfig], perception.Camera):
     default_config = CameraModuleConfig
     _global_config: GlobalConfig
 
-    def __init__(
-        self, global_config: GlobalConfig | None = None, **kwargs: Any
-    ) -> None:
+    def __init__(self, global_config: GlobalConfig | None = None, **kwargs: Any) -> None:
         self._global_config = global_config or GlobalConfig()
         super().__init__(**kwargs)
 
