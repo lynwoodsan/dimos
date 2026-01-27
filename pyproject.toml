@@ -41,6 +41,7 @@ dependencies = [
     "sortedcontainers==2.4.0",
     "pydantic",
     "python-dotenv",
+    "annotation-protocol>=1.4.0",
 
     # Multiprocess
     "dask[complete]==2025.5.1",
@@ -85,7 +86,6 @@ misc = [
     "cerebras-cloud-sdk",
     "yapf==0.40.2",
     "typeguard",
-    "annotation-protocol>=1.4.0",
     "empy==3.3.4",
     "catkin_pkg",
     "lark",
