@@ -297,7 +297,7 @@ class Blueprint:
         mod_and_mod_ref_to_proxy = {
             (module, name): replacement
             for (module, name), replacement in self.remapping_map.items()
-            if is_spec(replacement) or issubclass(replacement, Module)
+            if is_spec(replacement) or isinstance(replacement, type) and issubclass(replacement, Module)
         }
 
         # after this loop we should have an exact module for every module_ref on every blueprint
