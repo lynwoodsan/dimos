@@ -40,11 +40,11 @@ from dimos.manipulation.planning import (
 )
 from dimos.manipulation.planning.monitor import WorldMonitor
 
-# These must be imported at runtime (not TYPE_CHECKING) for In/Out port creation
+# JointState must be imported at runtime (not TYPE_CHECKING) for In port creation
 from dimos.msgs.sensor_msgs import JointState  # noqa: TC001
 from dimos.msgs.trajectory_msgs import JointTrajectory
 from dimos.utils.logging_config import setup_logger
-from dimos.utils.transform_utils import matrix_to_pose
+from dimos.utils.transform_utils import matrix_to_pose, pose_to_matrix
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -578,7 +578,10 @@ class ManipulationModule(Module):
         )
 
         self._state = ManipulationState.EXECUTING
-        if client.execute_trajectory(config.coordinator_task_name, translated):
+        result = client.task_invoke(
+            config.coordinator_task_name, "execute", {"trajectory": translated}
+        )
+        if result:
             logger.info("Trajectory accepted")
             self._state = ManipulationState.COMPLETED
             return True
@@ -595,8 +598,12 @@ class ManipulationModule(Module):
         _, _, config, _ = robot
         if not config.coordinator_task_name or (client := self._get_coordinator_client()) is None:
             return None
-        status = client.get_trajectory_status(config.coordinator_task_name)
-        return dict(status) if status else None
+        state = client.task_invoke(config.coordinator_task_name, "get_state", {})
+        progress = client.task_invoke(config.coordinator_task_name, "get_progress", {"t_now": None})
+        return {
+            "state": state.name if hasattr(state, "name") else str(state),
+            "progress": progress or 0.0,
+        }
 
     @property
     def world_monitor(self) -> WorldMonitor | None:
