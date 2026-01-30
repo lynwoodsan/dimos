@@ -92,7 +92,9 @@ class Image(Timestamped):
 
     msg_name = "sensor_msgs.Image"
 
-    data: np.ndarray = field(default_factory=lambda: np.zeros((1, 1, 3), dtype=np.uint8))  # type: ignore[type-arg]
+    data: np.ndarray[Any, np.dtype[Any]] = field(
+        default_factory=lambda: np.zeros((1, 1, 3), dtype=np.uint8)
+    )
     format: ImageFormat = field(default=ImageFormat.BGR)
     frame_id: str = field(default="")
     ts: float = field(default_factory=time.time)
