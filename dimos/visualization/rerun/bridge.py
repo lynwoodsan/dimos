@@ -24,6 +24,9 @@ import rerun as rr
 from dimos.core import Module, rpc
 from dimos.core.module import ModuleConfig
 from dimos.protocol.pubsub.impl.lcmpubsub import LCM
+from dimos.utils.logging_config import setup_logger
+
+logger = setup_logger()
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,6 +46,7 @@ class Config(ModuleConfig):
     entity_prefix: str = "world"
     topic_to_entity: Callable[[Any], str] | None = None
     viewer_mode: ViewerMode = "native"
+    memory_limit: str = "25%"
 
 
 class RerunBridgeModule(Module):
@@ -99,13 +103,14 @@ class RerunBridgeModule(Module):
         # Initialize and spawn Rerun viewer
         rr.init("dimos-bridge")
         if self.config.viewer_mode == "native":
-            rr.spawn(connect=True)
+            rr.spawn(connect=True, memory_limit=self.config.memory_limit)
         elif self.config.viewer_mode == "web":
             rr.serve_web_viewer(open_browser=True)
         # "none" - just init, no viewer (connect externally)
 
         # Start pubsubs and subscribe to all messages
         for pubsub in self.config.pubsubs:
+            logger.info(f"bridge listening on {pubsub.__class__.__name__}")
             if hasattr(pubsub, "start"):
                 pubsub.start()  # type: ignore[union-attr]
             unsub = pubsub.subscribe_all(self._on_message)
@@ -136,9 +141,14 @@ def main() -> None:
         default="native",
         help="Viewer mode: native (desktop), web (browser), none (headless)",
     )
+    parser.add_argument(
+        "--memory-limit",
+        default="25%",
+        help="Memory limit for Rerun viewer (e.g., '4GB', '16GB', '25%%')",
+    )
     args = parser.parse_args()
 
-    bridge = RerunBridgeModule(viewer_mode=args.viewer_mode)
+    bridge = RerunBridgeModule(viewer_mode=args.viewer_mode, memory_limit=args.memory_limit)
     bridge.start()
 
     signal.signal(signal.SIGINT, lambda *_: bridge.stop())

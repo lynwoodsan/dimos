@@ -469,6 +469,64 @@ class OccupancyGrid(Timestamped):
         else:
             return self._to_rerun_image(colormap)
 
+    def _generate_rgba_texture(self, colormap: str | None = None) -> NDArray[np.uint8]:
+        """Generate RGBA texture for the occupancy grid.
+
+        Args:
+            colormap: Optional matplotlib colormap name.
+
+        Returns:
+            RGBA numpy array of shape (height, width, 4).
+            Note: NOT flipped - caller handles orientation.
+        """
+        if colormap is not None:
+            cmap = _get_matplotlib_cmap(colormap)
+            grid_float = self.grid.astype(np.float32)
+
+            vis = np.zeros((self.height, self.width, 4), dtype=np.uint8)
+
+            free_mask = self.grid == 0
+            occupied_mask = self.grid > 0
+
+            if np.any(free_mask):
+                colors_free = (np.array(cmap(0.0)[:3]) * 255).astype(np.uint8)
+                vis[free_mask, :3] = colors_free
+                vis[free_mask, 3] = 255
+
+            if np.any(occupied_mask):
+                costs = grid_float[occupied_mask]
+                cost_norm = 0.5 + (costs / 100) * 0.5
+                colors_occ = (cmap(cost_norm)[:, :3] * 255).astype(np.uint8)
+                vis[occupied_mask, :3] = colors_occ
+                vis[occupied_mask, 3] = 255
+
+            # Unknown cells: fully transparent
+            # (vis is already zero-initialized, so alpha=0 by default)
+
+            return vis
+
+        # Default: Foxglove-style coloring
+        vis = np.zeros((self.height, self.width, 4), dtype=np.uint8)
+
+        free_mask = self.grid == 0
+        occupied_mask = self.grid > 0
+
+        # Free space: blue-purple #484981
+        vis[free_mask] = [72, 73, 129, 180]
+
+        # Occupied: gradient from blue-purple to black
+        if np.any(occupied_mask):
+            costs = self.grid[occupied_mask].astype(np.float32)
+            factor = (1 - costs / 100).clip(0, 1)
+            vis[occupied_mask, 0] = (72 * factor).astype(np.uint8)
+            vis[occupied_mask, 1] = (73 * factor).astype(np.uint8)
+            vis[occupied_mask, 2] = (129 * factor).astype(np.uint8)
+            vis[occupied_mask, 3] = 220
+
+        # Unknown cells: fully transparent (already zero from initialization)
+
+        return vis
+
     def _to_rerun_image(self, colormap: str | None = None):  # type: ignore[no-untyped-def]
         """Convert to 2D image visualization."""
         # Use existing cached visualization functions for supported palettes
@@ -485,40 +543,9 @@ class OccupancyGrid(Timestamped):
             return rr.Image(rgb_image, color_model="RGB")
 
         if colormap is not None:
-            # Use matplotlib colormap (cached for performance)
-            cmap = _get_matplotlib_cmap(colormap)
-
-            grid_float = self.grid.astype(np.float32)
-
-            # Create RGBA image
-            vis = np.zeros((self.height, self.width, 4), dtype=np.uint8)
-
-            # Free space: low cost (blue in RdBu_r)
-            free_mask = self.grid == 0
-            # Occupied: high cost (red in RdBu_r)
-            occupied_mask = self.grid > 0
-            # Unknown: transparent gray
-            unknown_mask = self.grid == -1
-
-            # Map free to 0, costs to normalized value
-            if np.any(free_mask):
-                colors_free = (cmap(0.0)[:3] * np.array([255, 255, 255])).astype(np.uint8)
-                vis[free_mask, :3] = colors_free
-                vis[free_mask, 3] = 255
-
-            if np.any(occupied_mask):
-                # Normalize costs 1-100 to 0.5-1.0 range
-                costs = grid_float[occupied_mask]
-                cost_norm = 0.5 + (costs / 100) * 0.5
-                colors_occ = (cmap(cost_norm)[:, :3] * 255).astype(np.uint8)
-                vis[occupied_mask, :3] = colors_occ
-                vis[occupied_mask, 3] = 255
-
-            if np.any(unknown_mask):
-                vis[unknown_mask] = [128, 128, 128, 100]  # Semi-transparent gray
-
-            # Flip vertically to match world coordinates (y=0 at bottom)
-            return rr.Image(np.flipud(vis), color_model="RGBA")
+            # Use helper and flip for image display
+            rgba = self._generate_rgba_texture(colormap)
+            return rr.Image(np.flipud(rgba), color_model="RGBA")
 
         # Grayscale visualization (no colormap)
         vis_gray = np.zeros((self.height, self.width), dtype=np.uint8)
@@ -579,104 +606,54 @@ class OccupancyGrid(Timestamped):
         )
 
     def _to_rerun_mesh(self, colormap: str | None = None, z_offset: float = 0.01):  # type: ignore[no-untyped-def]
-        """Convert to 3D mesh overlay on floor plane.
+        """Convert to 3D textured mesh overlay on floor plane.
 
-        Only renders known cells (free or occupied), skipping unknown cells.
-        Uses per-vertex colors for proper alpha blending.
-        Fully vectorized for performance (~100x faster than loop version).
+        Uses a single quad with the occupancy grid as a texture.
+        Much more efficient than per-cell quads (4 vertices vs n_cells*4).
         """
-        # Only render known cells (not unknown = -1)
-        known_mask = self.grid != -1
-        if not np.any(known_mask):
+        if self.grid.size == 0:
             return rr.Mesh3D(vertex_positions=[])
 
-        # Get grid coordinates of known cells
-        gy, gx = np.where(known_mask)
-        n_cells = len(gy)
+        # Generate RGBA texture and flip to match world coordinates
+        # Grid row 0 is at world y=origin (bottom), but texture row 0 is at UV v=0 (top)
+        rgba = np.flipud(self._generate_rgba_texture(colormap))
 
+        # Single quad covering entire grid
         ox = self.origin.position.x
         oy = self.origin.position.y
-        r = self.resolution
+        w = self.width * self.resolution
+        h = self.height * self.resolution
 
-        # === VECTORIZED VERTEX GENERATION ===
-        # World positions of cell corners (bottom-left of each cell)
-        wx = ox + gx.astype(np.float32) * r
-        wy = oy + gy.astype(np.float32) * r
+        vertices = np.array(
+            [
+                [ox, oy, z_offset],  # 0: bottom-left (world)
+                [ox + w, oy, z_offset],  # 1: bottom-right
+                [ox + w, oy + h, z_offset],  # 2: top-right
+                [ox, oy + h, z_offset],  # 3: top-left
+            ],
+            dtype=np.float32,
+        )
 
-        # Each cell has 4 vertices: (wx,wy), (wx+r,wy), (wx+r,wy+r), (wx,wy+r)
-        # Shape: (n_cells, 4, 3)
-        vertices = np.zeros((n_cells, 4, 3), dtype=np.float32)
-        vertices[:, 0, 0] = wx
-        vertices[:, 0, 1] = wy
-        vertices[:, 0, 2] = z_offset
-        vertices[:, 1, 0] = wx + r
-        vertices[:, 1, 1] = wy
-        vertices[:, 1, 2] = z_offset
-        vertices[:, 2, 0] = wx + r
-        vertices[:, 2, 1] = wy + r
-        vertices[:, 2, 2] = z_offset
-        vertices[:, 3, 0] = wx
-        vertices[:, 3, 1] = wy + r
-        vertices[:, 3, 2] = z_offset
-        # Flatten to (n_cells*4, 3)
-        flat_vertices = vertices.reshape(-1, 3)
+        indices = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32)
 
-        # === VECTORIZED INDEX GENERATION ===
-        # Base vertex indices for each cell: [0, 4, 8, 12, ...]
-        base_v = np.arange(n_cells, dtype=np.uint32) * 4
-        # Two triangles per cell: (0,1,2) and (0,2,3) relative to base
-        indices = np.zeros((n_cells, 2, 3), dtype=np.uint32)
-        indices[:, 0, 0] = base_v
-        indices[:, 0, 1] = base_v + 1
-        indices[:, 0, 2] = base_v + 2
-        indices[:, 1, 0] = base_v
-        indices[:, 1, 1] = base_v + 2
-        indices[:, 1, 2] = base_v + 3
-        # Flatten to (n_cells*2, 3)
-        flat_indices = indices.reshape(-1, 3)
-
-        # === VECTORIZED COLOR GENERATION ===
-        cell_values = self.grid[gy, gx]  # Get all cell values at once
-
-        if colormap:
-            cmap = _get_matplotlib_cmap(colormap)
-            # Normalize costs: free(0) -> 0.0, cost(1-100) -> 0.5-1.0
-            cost_norm = np.where(cell_values == 0, 0.0, 0.5 + (cell_values / 100) * 0.5)
-            # Sample colormap for all cells at once (returns Nx4 RGBA float)
-            rgba_float = cmap(cost_norm)[:, :3]  # Drop alpha, we set our own
-            rgb = (rgba_float * 255).astype(np.uint8)
-            # Alpha: 180 for free, 220 for occupied
-            alpha = np.where(cell_values == 0, 180, 220).astype(np.uint8)
-        else:
-            # Foxglove-style coloring: blue-purple for free, black for occupied
-            # Free (0): #484981 = RGB(72, 73, 129)
-            # Occupied (100): #000000 = RGB(0, 0, 0)
-            rgb = np.zeros((n_cells, 3), dtype=np.uint8)
-            is_free = cell_values == 0
-            is_occupied = ~is_free
-
-            # Free space: blue-purple #484981
-            rgb[is_free] = [72, 73, 129]
-
-            # Occupied: gradient from blue-purple to black based on cost
-            # cost 1 -> mostly blue-purple, cost 100 -> black
-            if np.any(is_occupied):
-                costs = cell_values[is_occupied].astype(np.float32)
-                # Linear interpolation: (1 - cost/100) * blue-purple
-                factor = (1 - costs / 100).clip(0, 1)
-                rgb[is_occupied, 0] = (72 * factor).astype(np.uint8)
-                rgb[is_occupied, 1] = (73 * factor).astype(np.uint8)
-                rgb[is_occupied, 2] = (129 * factor).astype(np.uint8)
-
-            alpha = np.where(is_free, 180, 220).astype(np.uint8)
-
-        # Combine RGB and alpha into RGBA
-        colors_per_cell = np.column_stack([rgb, alpha])  # (n_cells, 4)
-        # Repeat each color 4 times (one per vertex)
-        colors = np.repeat(colors_per_cell, 4, axis=0)  # (n_cells*4, 4)
+        # UV coords: Rerun uses top-left origin for textures
+        # Grid row 0 is at world y=oy (bottom), row H-1 at y=oy+h (top)
+        # Texture row 0 = grid row 0, so:
+        #   world bottom (v0,v1) -> texture v=1 (bottom of texture)
+        #   world top (v2,v3) -> texture v=0 (top of texture)
+        texcoords = np.array(
+            [
+                [0.0, 1.0],  # v0: bottom-left world -> bottom-left tex
+                [1.0, 1.0],  # v1: bottom-right world -> bottom-right tex
+                [1.0, 0.0],  # v2: top-right world -> top-right tex
+                [0.0, 0.0],  # v3: top-left world -> top-left tex
+            ],
+            dtype=np.float32,
+        )
 
         return rr.Mesh3D(
-            vertex_positions=flat_vertices,
-            triangle_indices=flat_indices,
-            vertex_colors=colors,
+            vertex_positions=vertices,
+            triangle_indices=indices,
+            vertex_texcoords=texcoords,
+            albedo_texture=rgba,
         )
