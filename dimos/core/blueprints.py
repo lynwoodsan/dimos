@@ -27,7 +27,7 @@ import rerun as rr
 import rerun.blueprint as rrb
 
 from dimos.core.global_config import GlobalConfig
-from dimos.core.module import Module
+from dimos.core.module import Module, is_module_type
 from dimos.core.module_coordinator import ModuleCoordinator
 from dimos.core.stream import In, Out
 from dimos.core.transport import LCMTransport, PubSubTransport, pLCMTransport
@@ -89,7 +89,7 @@ class _BlueprintAtom:
             elif is_spec(annotation):
                 module_refs.append(ModuleRef(name=name, spec=annotation))
             # linking to specific/known module directly
-            elif inspect.isclass(annotation) and issubclass(annotation, Module):
+            elif is_module_type(annotation):
                 module_refs.append(ModuleRef(name=name, spec=annotation))
 
         return cls(
@@ -301,8 +301,7 @@ class Blueprint:
         mod_and_mod_ref_to_proxy = {
             (module, name): replacement
             for (module, name), replacement in self.remapping_map.items()
-            if is_spec(replacement)
-            or (inspect.isclass(replacement) and issubclass(replacement, Module))
+            if is_spec(replacement) or is_module_type(replacement)
         }
 
         # after this loop we should have an exact module for every module_ref on every blueprint
@@ -314,7 +313,7 @@ class Blueprint:
                 )
 
                 # if the spec is actually module, use that (basically a user override)
-                if inspect.isclass(spec) and issubclass(spec, Module):
+                if is_module_type(spec):
                     mod_and_mod_ref_to_proxy[blueprint.module, each_module_ref.name] = spec
                     continue
 

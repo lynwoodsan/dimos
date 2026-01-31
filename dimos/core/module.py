@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from functools import partial
+import inspect
 import sys
 import threading
 from typing import (
@@ -466,3 +467,10 @@ class Module(ModuleBase[ModuleConfigT]):
 
 
 ModuleT = TypeVar("ModuleT", bound="Module")
+
+
+def is_module_type(value: Any):
+    try:
+        return inspect.isclass(value) and issubclass(value, Module)
+    except Exception:
+        return False
