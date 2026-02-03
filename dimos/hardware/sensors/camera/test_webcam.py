@@ -32,6 +32,7 @@ def dimos():
 
 
 @pytest.mark.tool
+@pytest.mark.neverending
 def test_streaming_single(dimos) -> None:
     camera = dimos.deploy(
         CameraModule,
