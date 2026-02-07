@@ -15,49 +15,23 @@
 
 """Cascaded GO2 blueprints split into focused modules."""
 
-from dimos.robot.unitree.go2.blueprints.agentic._common_agentic import _common_agentic
-from dimos.robot.unitree.go2.blueprints.agentic.unitree_go2_agentic import unitree_go2_agentic
-from dimos.robot.unitree.go2.blueprints.agentic.unitree_go2_agentic_huggingface import (
-    unitree_go2_agentic_huggingface,
-)
-from dimos.robot.unitree.go2.blueprints.agentic.unitree_go2_agentic_mcp import (
-    unitree_go2_agentic_mcp,
-)
-from dimos.robot.unitree.go2.blueprints.agentic.unitree_go2_agentic_ollama import (
-    unitree_go2_agentic_ollama,
-)
-from dimos.robot.unitree.go2.blueprints.agentic.unitree_go2_temporal_memory import (
-    unitree_go2_temporal_memory,
-)
-from dimos.robot.unitree.go2.blueprints.basic.unitree_go2_basic import (
-    _linux,
-    _mac,
-    unitree_go2_basic,
-)
-from dimos.robot.unitree.go2.blueprints.smart._with_jpeg import _with_jpeglcm, _with_jpegshm
-from dimos.robot.unitree.go2.blueprints.smart.unitree_go2 import unitree_go2
-from dimos.robot.unitree.go2.blueprints.smart.unitree_go2_detection import unitree_go2_detection
-from dimos.robot.unitree.go2.blueprints.smart.unitree_go2_ros import unitree_go2_ros
-from dimos.robot.unitree.go2.blueprints.smart.unitree_go2_spatial import unitree_go2_spatial
-from dimos.robot.unitree.go2.blueprints.smart.unitree_go2_vlm_stream_test import (
-    unitree_go2_vlm_stream_test,
-)
+import lazy_loader as lazy
 
-__all__ = [
-    "_common_agentic",
-    "_linux",
-    "_mac",
-    "_with_jpeglcm",
-    "_with_jpegshm",
-    "unitree_go2",
-    "unitree_go2_agentic",
-    "unitree_go2_agentic_huggingface",
-    "unitree_go2_agentic_mcp",
-    "unitree_go2_agentic_ollama",
-    "unitree_go2_basic",
-    "unitree_go2_detection",
-    "unitree_go2_ros",
-    "unitree_go2_spatial",
-    "unitree_go2_temporal_memory",
-    "unitree_go2_vlm_stream_test",
-]
+__getattr__, __dir__, __all__ = lazy.attach(
+    __name__,
+    submod_attrs={
+        "agentic._common_agentic": ["_common_agentic"],
+        "agentic.unitree_go2_agentic": ["unitree_go2_agentic"],
+        "agentic.unitree_go2_agentic_huggingface": ["unitree_go2_agentic_huggingface"],
+        "agentic.unitree_go2_agentic_mcp": ["unitree_go2_agentic_mcp"],
+        "agentic.unitree_go2_agentic_ollama": ["unitree_go2_agentic_ollama"],
+        "agentic.unitree_go2_temporal_memory": ["unitree_go2_temporal_memory"],
+        "basic.unitree_go2_basic": ["_linux", "_mac", "unitree_go2_basic"],
+        "smart._with_jpeg": ["_with_jpeglcm", "_with_jpegshm"],
+        "smart.unitree_go2": ["unitree_go2"],
+        "smart.unitree_go2_detection": ["unitree_go2_detection"],
+        "smart.unitree_go2_ros": ["unitree_go2_ros"],
+        "smart.unitree_go2_spatial": ["unitree_go2_spatial"],
+        "smart.unitree_go2_vlm_stream_test": ["unitree_go2_vlm_stream_test"],
+    },
+)
