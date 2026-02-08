@@ -5,6 +5,7 @@ import signal
 import time
 from typing import TYPE_CHECKING, cast
 
+from dimos.core.core import rpc
 from dimos.utils.logging_config import setup_logger
 import lazy_loader as lazy
 
@@ -23,7 +24,6 @@ __getattr__, __dir__, __all__ = lazy.attach(
     submod_attrs={
         "_dask_exports": ["DimosCluster"],
         "_protocol_exports": ["LCMRPC", "RPCSpec", "LCMTF", "TF", "PubSubTF", "TFConfig", "TFSpec"],
-        "core": ["rpc"],
         "module": ["Module", "ModuleBase", "ModuleConfig", "ModuleConfigT"],
         "stream": ["In", "Out", "RemoteIn", "RemoteOut", "Transport"],
         "transport": [
@@ -35,7 +35,7 @@ __getattr__, __dir__, __all__ = lazy.attach(
         ],
     },
 )
-__all__ += ["start", "wait_exit"]
+__all__ += ["rpc", "start", "wait_exit"]
 
 
 class CudaCleanupPlugin:
