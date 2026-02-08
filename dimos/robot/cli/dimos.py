@@ -19,13 +19,8 @@ from typing import Any, Optional, get_args, get_origin
 
 import typer
 
-from dimos.core.blueprints import autoconnect
 from dimos.core.global_config import GlobalConfig
-from dimos.protocol import pubsub
 from dimos.robot.all_blueprints import all_blueprints
-from dimos.robot.cli.topic import topic_echo, topic_send
-from dimos.robot.get_all_blueprints import get_blueprint_by_name, get_module_by_name
-from dimos.utils.logging_config import setup_exception_handler
 
 RobotType = Enum("RobotType", {key.replace("-", "_").upper(): key for key in all_blueprints.keys()})  # type: ignore[misc]
 
@@ -110,6 +105,11 @@ def run(
     ),
 ) -> None:
     """Start a robot blueprint"""
+    from dimos.core.blueprints import autoconnect
+    from dimos.protocol import pubsub
+    from dimos.robot.get_all_blueprints import get_blueprint_by_name, get_module_by_name
+    from dimos.utils.logging_config import setup_exception_handler
+
     setup_exception_handler()
 
     cli_config_overrides: dict[str, Any] = ctx.obj
@@ -127,6 +127,8 @@ def run(
 @main.command()
 def show_config(ctx: typer.Context) -> None:
     """Show current config settings and their values."""
+    from dimos.core.global_config import GlobalConfig
+
     cli_config_overrides: dict[str, Any] = ctx.obj
     config = GlobalConfig().model_copy(update=cli_config_overrides)
 
@@ -137,6 +139,8 @@ def show_config(ctx: typer.Context) -> None:
 @main.command()
 def list() -> None:
     """List all available blueprints."""
+    from dimos.robot.all_blueprints import all_blueprints
+
     blueprints = [name for name in all_blueprints.keys() if not name.startswith("demo-")]
     for blueprint_name in sorted(blueprints):
         typer.echo(blueprint_name)
@@ -190,6 +194,8 @@ def echo(
         help="Optional message type (e.g., PoseStamped). If omitted, infer from '/topic#pkg.Msg'.",
     ),
 ) -> None:
+    from dimos.robot.cli.topic import topic_echo
+
     topic_echo(topic, type_name)
 
 
@@ -198,6 +204,8 @@ def send(
     topic: str = typer.Argument(..., help="Topic name to send to (e.g., /goal_request)"),
     message_expr: str = typer.Argument(..., help="Python expression for the message"),
 ) -> None:
+    from dimos.robot.cli.topic import topic_send
+
     topic_send(topic, message_expr)
 
 
