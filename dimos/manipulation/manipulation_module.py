@@ -607,10 +607,6 @@ class ManipulationModule(Module):
         status = client.get_trajectory_status(config.coordinator_task_name)
         return dict(status) if status else None
 
-    # =========================================================================
-    # GraspGen Integration RPC Methods
-    # =========================================================================
-
     def _get_graspgen(self) -> DockerModule | None:
         """Get or create GraspGen Docker module (lazy init)."""
         if self._graspgen is not None:
@@ -645,8 +641,6 @@ class ManipulationModule(Module):
         pointcloud: PointCloud2,
         scene_pointcloud: PointCloud2 | None = None,
     ) -> PoseArray | None:
-        """Generate grasp poses for the given point cloud via GraspGen (Docker/GPU).
-        """
         graspgen = self._get_graspgen()
         if graspgen is None:
             return None
