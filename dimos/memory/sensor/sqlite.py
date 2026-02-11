@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""SQLite backend for SensorStore."""
+"""SQLite backend for TimeSeriesStore."""
 
 from collections.abc import Iterator
 from pathlib import Path
@@ -19,7 +19,7 @@ import pickle
 import re
 import sqlite3
 
-from dimos.memory.sensor.base import SensorStore, T
+from dimos.memory.sensor.base import T, TimeSeriesStore
 from dimos.utils.data import get_data, get_data_dir
 
 # Valid SQL identifier: alphanumeric and underscores, not starting with digit
@@ -37,7 +37,7 @@ def _validate_identifier(name: str) -> str:
     return name
 
 
-class SqliteStore(SensorStore[T]):
+class SqliteStore(TimeSeriesStore[T]):
     """SQLite backend for sensor data. Good for indexed queries and single-file storage.
 
     Data is stored as pickled BLOBs with timestamp as indexed column.

@@ -30,7 +30,7 @@ from dimos.types.timestamped import Timestamped
 T = TypeVar("T")
 
 
-class SensorStore(Generic[T], ABC):
+class TimeSeriesStore(Generic[T], ABC):
     """Unified storage + replay for sensor data.
 
     Implement 4 abstract methods for your backend (in-memory, pickle, sqlite, etc.).
@@ -130,6 +130,10 @@ class SensorStore(Generic[T], ABC):
     def load(self, timestamp: float) -> T | None:
         """Load data at exact timestamp."""
         return self._load(timestamp)
+
+    def get(self, timestamp: float, tolerance: float | None = None) -> T | None:
+        """Get data at exact timestamp or closest within tolerance."""
+        return self.find_closest(timestamp, tolerance)
 
     def find_closest(
         self,
@@ -312,7 +316,7 @@ class SensorStore(Generic[T], ABC):
         return rx.create(subscribe)
 
 
-class InMemoryStore(SensorStore[T]):
+class InMemoryStore(TimeSeriesStore[T]):
     """In-memory storage using dict. Good for live use."""
 
     def __init__(self) -> None:

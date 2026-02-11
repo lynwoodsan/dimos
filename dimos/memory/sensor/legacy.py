@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Legacy pickle directory backend for SensorStore.
+"""Legacy pickle directory backend for TimeSeriesStore.
 
 Compatible with TimedSensorReplay/TimedSensorStorage file format.
 """
@@ -30,11 +30,11 @@ from reactivex.disposable import CompositeDisposable, Disposable
 from reactivex.observable import Observable
 from reactivex.scheduler import TimeoutScheduler
 
-from dimos.memory.sensor.base import SensorStore, T
+from dimos.memory.sensor.base import T, TimeSeriesStore
 from dimos.utils.data import get_data, get_data_dir
 
 
-class LegacyPickleStore(SensorStore[T]):
+class LegacyPickleStore(TimeSeriesStore[T]):
     """Legacy pickle backend compatible with TimedSensorReplay/TimedSensorStorage.
 
     File format:

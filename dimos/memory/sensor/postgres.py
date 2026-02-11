@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""PostgreSQL backend for SensorStore."""
+"""PostgreSQL backend for TimeSeriesStore."""
 
 from collections.abc import Iterator
 import pickle
@@ -21,7 +21,7 @@ import psycopg2
 import psycopg2.extensions
 
 from dimos.core.resource import Resource
-from dimos.memory.sensor.base import SensorStore, T
+from dimos.memory.sensor.base import T, TimeSeriesStore
 
 # Valid SQL identifier: alphanumeric and underscores, not starting with digit
 _VALID_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
@@ -38,7 +38,7 @@ def _validate_identifier(name: str) -> str:
     return name
 
 
-class PostgresStore(SensorStore[T], Resource):
+class PostgresStore(TimeSeriesStore[T], Resource):
     """PostgreSQL backend for sensor data.
 
     Multiple stores can share the same database with different tables.

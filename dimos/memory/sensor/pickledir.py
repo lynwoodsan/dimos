@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Pickle directory backend for SensorStore."""
+"""Pickle directory backend for TimeSeriesStore."""
 
 import bisect
 from collections.abc import Iterator
@@ -20,11 +20,11 @@ import os
 from pathlib import Path
 import pickle
 
-from dimos.memory.sensor.base import SensorStore, T
+from dimos.memory.sensor.base import T, TimeSeriesStore
 from dimos.utils.data import get_data, get_data_dir
 
 
-class PickleDirStore(SensorStore[T]):
+class PickleDirStore(TimeSeriesStore[T]):
     """Pickle directory backend. Files named by timestamp.
 
     Directory structure:

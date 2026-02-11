@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for SensorStore implementations."""
+"""Tests for TimeSeriesStore implementations."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,7 +20,7 @@ import uuid
 
 import pytest
 
-from dimos.memory.sensor.base import InMemoryStore, SensorStore
+from dimos.memory.sensor.base import InMemoryStore, TimeSeriesStore
 from dimos.memory.sensor.legacy import LegacyPickleStore
 from dimos.memory.sensor.pickledir import PickleDirStore
 from dimos.memory.sensor.sqlite import SqliteStore
@@ -82,19 +82,19 @@ def temp_dir():
         yield tmpdir
 
 
-def make_in_memory_store() -> SensorStore[SampleData]:
+def make_in_memory_store() -> TimeSeriesStore[SampleData]:
     return InMemoryStore[SampleData]()
 
 
-def make_pickle_dir_store(tmpdir: str) -> SensorStore[SampleData]:
+def make_pickle_dir_store(tmpdir: str) -> TimeSeriesStore[SampleData]:
     return PickleDirStore[SampleData](tmpdir)
 
 
-def make_sqlite_store(tmpdir: str) -> SensorStore[SampleData]:
+def make_sqlite_store(tmpdir: str) -> TimeSeriesStore[SampleData]:
     return SqliteStore[SampleData](Path(tmpdir) / "test.db")
 
 
-def make_legacy_pickle_store(tmpdir: str) -> SensorStore[SampleData]:
+def make_legacy_pickle_store(tmpdir: str) -> TimeSeriesStore[SampleData]:
     return LegacyPickleStore[SampleData](Path(tmpdir) / "legacy")
 
 
@@ -118,7 +118,7 @@ try:
     _test_conn = psycopg2.connect(dbname="dimensional")
     _test_conn.close()
 
-    def make_postgres_store(_tmpdir: str) -> SensorStore[SampleData]:
+    def make_postgres_store(_tmpdir: str) -> TimeSeriesStore[SampleData]:
         """Create PostgresStore with unique table name."""
         table = f"test_{uuid.uuid4().hex[:8]}"
         _postgres_tables.append(table)
@@ -149,8 +149,8 @@ except Exception:
 
 
 @pytest.mark.parametrize("store_factory,store_name", testdata)
-class TestSensorStore:
-    """Parametrized tests for all SensorStore implementations."""
+class TestTimeSeriesStore:
+    """Parametrized tests for all TimeSeriesStore implementations."""
 
     def test_save_and_load(self, store_factory, store_name, temp_dir):
         store = store_factory(temp_dir)
@@ -452,7 +452,7 @@ class TestSensorStore:
 
 
 class TestNonTimestampedData:
-    """Test SensorStore with plain (non-Timestamped) data types."""
+    """Test TimeSeriesStore with plain (non-Timestamped) data types."""
 
     def test_store_plain_strings(self):
         store: InMemoryStore[str] = InMemoryStore()
