@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import threading
-from typing import TYPE_CHECKING, TypeAlias, cast
+from typing import TYPE_CHECKING, TypeAlias
 
 from dimos.core import In, Module, rpc
 from dimos.core.module import ModuleConfig
@@ -453,7 +453,7 @@ class ManipulationModule(Module):
         """
         if self._world_monitor is None:
             return None
-        return cast("str | None", self._world_monitor.get_visualization_url())
+        return self._world_monitor.get_visualization_url()
 
     @rpc
     def clear_planned_path(self) -> bool:
