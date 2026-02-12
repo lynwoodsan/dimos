@@ -1880,11 +1880,6 @@ docker = [
 drone = [
     { name = "pymavlink" },
 ]
-jetson = [
-    { name = "ctransformers", extra = ["cuda"] },
-    { name = "mmcv" },
-    { name = "mmengine" },
-]
 manipulation = [
     { name = "contact-graspnet-pytorch" },
     { name = "drake", marker = "platform_machine != 'aarch64'" },
@@ -2003,7 +1998,6 @@ requires-dist = [
     { name = "coverage", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "ctransformers", marker = "extra == 'cpu'", specifier = "==0.2.27" },
     { name = "ctransformers", extras = ["cuda"], marker = "extra == 'cuda'", specifier = "==0.2.27" },
-    { name = "ctransformers", extras = ["cuda"], marker = "extra == 'jetson'", specifier = "==0.2.27" },
     { name = "cupy-cuda12x", marker = "platform_machine == 'x86_64' and extra == 'cuda'", specifier = "==13.6.0" },
     { name = "dask", extras = ["complete"], specifier = "==2025.5.1" },
     { name = "dask", extras = ["distributed"], marker = "extra == 'docker'", specifier = "==2025.5.1" },
@@ -2040,9 +2034,7 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'agents'", specifier = ">=1.0.0" },
     { name = "md-babel-py", marker = "extra == 'dev'", specifier = "==1.1.1" },
     { name = "mmcv", marker = "extra == 'cuda'", specifier = ">=2.1.0" },
-    { name = "mmcv", marker = "extra == 'jetson'", specifier = ">=2.1.0" },
     { name = "mmengine", marker = "extra == 'cuda'", specifier = ">=0.10.3" },
-    { name = "mmengine", marker = "extra == 'jetson'", specifier = ">=0.10.3" },
     { name = "moondream", marker = "extra == 'perception'" },
     { name = "mujoco", marker = "extra == 'sim'", specifier = ">=3.3.4" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==1.19.0" },
@@ -2158,7 +2150,7 @@ requires-dist = [
     { name = "xformers", marker = "platform_machine == 'x86_64' and extra == 'cuda'", specifier = ">=0.0.20" },
     { name = "yapf", marker = "extra == 'misc'", specifier = "==0.40.2" },
 ]
-provides-extras = ["misc", "visualization", "agents", "web", "perception", "unitree", "manipulation", "cpu", "cuda", "jetson", "dev", "sim", "drone", "docker", "base"]
+provides-extras = ["misc", "visualization", "agents", "web", "perception", "unitree", "manipulation", "cpu", "cuda", "dev", "sim", "drone", "docker", "base"]
 
 [[package]]
 name = "dimos-lcm"

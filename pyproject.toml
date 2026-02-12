@@ -214,12 +214,6 @@ cuda = [
     "xformers>=0.0.20; platform_machine == 'x86_64'",
 ]
 
-jetson = [
-    "mmengine>=0.10.3",
-    "mmcv>=2.1.0",
-    "ctransformers[cuda]==0.2.27",
-]
-
 dev = [
     "ruff==0.14.3",
     "mypy==1.19.0",
