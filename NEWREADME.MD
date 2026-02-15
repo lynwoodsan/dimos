@@ -35,6 +35,18 @@
       <p>bla bla perception</p>
     </td>
   </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/readme/lidar.png" alt="Mapping" width="100%"><br>
+      <h3>Mapping</h3>
+      <p>Voxels</p>
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/readme/agents.png" alt="Agents" width="100%"><br>
+      <h3>Agents integration</h3>
+      <p>bla bla MCP</p>
+    </td>
+  </tr>
 </table>
 
 # Installation
