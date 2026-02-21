@@ -53,7 +53,7 @@ rerun_config = {
             rr.Boxes3D(
                 half_sizes=[0.2, 0.15, 0.75],
                 colors=[(0, 255, 127)],
-                fill_mode="wireframe",
+                fill_mode="MajorWireframe",
             ),
             rr.Transform3D(parent_frame="tf#/base_link"),
         ]
