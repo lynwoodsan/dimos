@@ -35,6 +35,17 @@ from dimos.protocol.service.system_configurator.lcm import (
 )
 
 
+# TODO: This is a configurator API issue
+#
+# We need to use different configurators based on the underlying OS
+#
+# We should have separation of concerns, nothing but configurators themselves care about the OS in this context
+#
+# So configurators with multi-os behavior should be responsible for the right per-OS behaviour, and
+# not external systems
+#
+# We might want to have some sort of recursive configurators
+#
 def lcm_configurators() -> list[SystemConfigurator]:
     """Return the platform-appropriate LCM system configurators."""
     system = platform.system()
