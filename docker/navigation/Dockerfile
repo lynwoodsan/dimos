@@ -379,7 +379,7 @@ COPY dimos/navigation/replanning_a_star/min_cost_astar_cpp.cpp /workspace/dimos/
 # Create a placeholder package so the editable install can resolve dependencies at build time.
 # The real dimos source is provided at runtime via volume mount (../..:/workspace/dimos).
 RUN mkdir -p /workspace/dimos/dimos && touch /workspace/dimos/dimos/__init__.py
-RUN /opt/dimos-venv/bin/pip install --no-cache-dir -e "/workspace/dimos[unitree]"
+RUN /opt/dimos-venv/bin/pip install "dimos[unitree]"
 # Store pyproject.toml hash so the entrypoint can detect dependency changes at runtime
 RUN sha256sum /workspace/dimos/pyproject.toml > /opt/dimos-venv/pyproject.toml.sha256
 
