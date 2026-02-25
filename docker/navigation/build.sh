@@ -98,6 +98,19 @@ else
     cd ..
 fi
 
+# Normalize every tracked file's mtime to the HEAD commit timestamp.
+# git clone and reset --hard assign the current wall-clock time as mtime,
+# so two identical checkouts produce different mtimes and bust Docker's COPY
+# cache even when file content is byte-for-byte identical.  Pinning all mtimes
+# to the commit timestamp makes the cache key deterministic: same commit →
+# same mtimes → cache hit, regardless of when or how the repo was checked out.
+echo -e "${GREEN}Pinning ros-navigation-autonomy-stack file timestamps to HEAD commit...${NC}"
+(
+    cd ros-navigation-autonomy-stack
+    COMMIT_TIME=$(git log -1 --format=%ct)
+    git ls-files -z | xargs -0 touch -d "@${COMMIT_TIME}"
+)
+
 if [ ! -d "unity_models" ]; then
     echo -e "${YELLOW}Using office_building_1 as the Unity environment...${NC}"
     tar -xf ../../data/.lfs/office_building_1.tar.gz
@@ -128,6 +141,7 @@ case "$HOST_ARCH" in
 esac
 echo -e "${GREEN}Detected architecture: ${HOST_ARCH} → TARGETARCH=${TARGETARCH}${NC}"
 
+echo docker compose -f docker/navigation/docker-compose.yml build --build-arg TARGETARCH="$TARGETARCH"
 docker compose -f docker/navigation/docker-compose.yml build --build-arg TARGETARCH="$TARGETARCH"
 
 echo ""
@@ -138,13 +152,13 @@ echo -e "${GREEN}SLAM: arise_slam + FASTLIO2 (both included)${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
 echo "To run in SIMULATION mode:"
-echo -e "${YELLOW}  ./start.sh --simulation --${ROS_DISTRO}${NC}"
+echo -e "${YELLOW}  ./start.sh --simulation --image ${ROS_DISTRO}${NC}"
 echo ""
 echo "To run in HARDWARE mode:"
 echo "  1. Configure your hardware settings in .env file"
 echo "     (copy from .env.hardware if needed)"
 echo "  2. Run the hardware container:"
-echo -e "${YELLOW}     ./start.sh --hardware --${ROS_DISTRO}${NC}"
+echo -e "${YELLOW}     ./start.sh --hardware --image ${ROS_DISTRO}${NC}"
 echo ""
 echo "To use FASTLIO2 instead of arise_slam, set LOCALIZATION_METHOD:"
 echo -e "${YELLOW}     LOCALIZATION_METHOD=fastlio ./start.sh --hardware --${ROS_DISTRO}${NC}"

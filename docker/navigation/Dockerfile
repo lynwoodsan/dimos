@@ -372,10 +372,16 @@ RUN if [ "${TARGETARCH}" = "arm64" ] && ls /opt/open3d-wheel/open3d*.whl 1>/dev/
 # The volume mount at runtime will overlay /workspace/dimos, but the editable
 # install creates a link that will use the volume-mounted files
 COPY pyproject.toml setup.py /workspace/dimos/
+# Copy the C++ extension source so setup.py can compile it.
+# Note: the compiled .so targets Python 3.10 (container); the volume-mounted host
+# source may have a .so for a different Python version so both must exist.
+COPY dimos/navigation/replanning_a_star/min_cost_astar_cpp.cpp /workspace/dimos/dimos/navigation/replanning_a_star/min_cost_astar_cpp.cpp
 # Create a placeholder package so the editable install can resolve dependencies at build time.
 # The real dimos source is provided at runtime via volume mount (../..:/workspace/dimos).
 RUN mkdir -p /workspace/dimos/dimos && touch /workspace/dimos/dimos/__init__.py
-RUN /opt/dimos-venv/bin/pip install --no-cache-dir -e "/workspace/dimos[unitree]"
+RUN /opt/dimos-venv/bin/pip install "dimos[unitree]"
+# Store pyproject.toml hash so the entrypoint can detect dependency changes at runtime
+RUN sha256sum /workspace/dimos/pyproject.toml > /opt/dimos-venv/pyproject.toml.sha256
 
 # Set up shell environment
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc && \
@@ -495,6 +501,17 @@ EOF\n\
     # Display Robot IP configuration if set\n\
     if [ -n "${ROBOT_IP}" ]; then\n\
         echo "Robot IP configured on local network: ${ROBOT_IP}"\n\
+    fi\n\
+fi\n\
+\n\
+# Reinstall dimos if pyproject.toml changed since the image was built.\n\
+# This handles the common dev workflow where deps are added locally and the\n\
+# container is restarted without a full rebuild.\n\
+if [ -f /workspace/dimos/pyproject.toml ] && [ -f /opt/dimos-venv/pyproject.toml.sha256 ]; then\n\
+    if ! sha256sum -c /opt/dimos-venv/pyproject.toml.sha256 > /dev/null 2>&1; then\n\
+        echo "[dimos] pyproject.toml changed since image build; reinstalling dimos[unitree]..."\n\
+        /opt/dimos-venv/bin/pip install -e "/workspace/dimos[unitree]"\n\
+        sha256sum /workspace/dimos/pyproject.toml > /opt/dimos-venv/pyproject.toml.sha256\n\
     fi\n\
 fi\n\
 \n\
