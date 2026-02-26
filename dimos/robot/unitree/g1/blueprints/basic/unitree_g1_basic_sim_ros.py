@@ -16,7 +16,7 @@
 """Basic G1 sim stack with ROS nav: sim connection and ROS navigation stack."""
 
 from dimos.core.blueprints import autoconnect
-from dimos.navigation.rosnav import ros_nav
+from dimos.navigation.rosnav_docker import ros_nav
 from dimos.robot.unitree.g1.blueprints.primitive.unitree_g1_primitive_no_cam import (
     unitree_g1_primitive_no_cam,
 )
