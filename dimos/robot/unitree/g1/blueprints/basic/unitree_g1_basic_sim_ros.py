@@ -23,7 +23,7 @@ from dimos.robot.unitree.g1.blueprints.primitive.unitree_g1_primitive_no_cam imp
 
 unitree_g1_basic_sim_ros = autoconnect(
     unitree_g1_primitive_no_cam,
-    ros_nav(unity_simulation=True),
+    ros_nav(mode="simulation"),
 )
 
 __all__ = ["unitree_g1_basic_sim_ros"]

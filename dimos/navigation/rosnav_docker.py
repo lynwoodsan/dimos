@@ -121,7 +121,7 @@ class ROSNavConfig(DockerModuleConfig):
     #   "hardware"    — system_real_robot[_with_route_planner].launch.py
     #   "bagfile"     — system_bagfile[_with_route_planner].launch.py + use_sim_time
     # Setting bagfile_path automatically forces mode to "bagfile".
-    mode: str = "simulation"
+    mode: str = "hardware"
     bagfile_path: str = ""  # container-side path to bag; plays with --clock
 
     def __post_init__(self) -> None:
