@@ -70,7 +70,7 @@ class PersonFollowSkillContainer(Module[Config]):
         self._latest_image: Image | None = None
         self._latest_pointcloud: PointCloud2 | None = None
         # Use VlModel to keep usage in this class generic
-        self._vl_model: VlModel = QwenVlModel()
+        self._vl_model: VlModel[Any] = QwenVlModel()
         self._tracker: EdgeTAMProcessor | None = None
         self._thread: Thread | None = None
         self._should_stop: Event = Event()
