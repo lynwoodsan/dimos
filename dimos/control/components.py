@@ -25,6 +25,8 @@ TaskName = str
 class HardwareType(Enum):
     MANIPULATOR = "manipulator"
     BASE = "base"
+    GRIPPER = "gripper"
+    QUADRUPED = "quadruped"
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,29 @@ def make_twist_base_joints(
     return [f"{hardware_id}_{s}" for s in suffixes]
 
 
+_QUADRUPED_LEG_JOINTS = [
+    "FR_0", "FR_1", "FR_2",
+    "FL_0", "FL_1", "FL_2",
+    "RR_0", "RR_1", "RR_2",
+    "RL_0", "RL_1", "RL_2",
+]
+
+
+def make_quadruped_joints(hardware_id: HardwareId) -> list[JointName]:
+    """Create joint names for a 12-DOF quadruped.
+
+    Uses standard leg naming: FR/FL/RR/RL with 3 joints each
+    (hip, thigh, calf).
+
+    Args:
+        hardware_id: The hardware identifier (e.g., "go2")
+
+    Returns:
+        List of 12 joint names like ["go2_FR_0", "go2_FR_1", ..., "go2_RL_2"]
+    """
+    return [f"{hardware_id}_{j}" for j in _QUADRUPED_LEG_JOINTS]
+
+
 __all__ = [
     "TWIST_SUFFIX_MAP",
     "HardwareComponent",
@@ -132,5 +157,6 @@ __all__ = [
     "TaskName",
     "make_gripper_joints",
     "make_joints",
+    "make_quadruped_joints",
     "make_twist_base_joints",
 ]

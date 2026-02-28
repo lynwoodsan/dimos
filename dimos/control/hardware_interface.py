@@ -33,6 +33,7 @@ from dimos.hardware.manipulators.spec import ControlMode, ManipulatorAdapter
 if TYPE_CHECKING:
     from dimos.control.components import HardwareComponent, HardwareId, JointName, JointState
     from dimos.hardware.drive_trains.spec import TwistBaseAdapter
+    from dimos.hardware.quadrupeds.spec import QuadrupedAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +320,116 @@ class ConnectedTwistBase(ConnectedHardware):
         return self._twist_adapter.write_velocities(ordered)
 
 
+_DEFAULT_KP: float = 40.0
+_DEFAULT_KD: float = 3.0
+
+
+class ConnectedQuadruped(ConnectedHardware):
+    """Runtime wrapper for a quadruped connected to the coordinator.
+
+    Wraps a QuadrupedAdapter for 12-DOF joint-level control.
+
+    Key differences from ConnectedHardware:
+    - Reads joint state from MotorState (q, dq, tau)
+    - write_command converts position commands to MotorCommand with PD gains
+    - write_motor_commands provides direct pass-through to adapter
+    """
+
+    _quad_adapter: QuadrupedAdapter
+
+    def __init__(
+        self,
+        adapter: QuadrupedAdapter,
+        component: HardwareComponent,
+    ) -> None:
+        from dimos.hardware.quadrupeds.spec import QuadrupedAdapter as QuadrupedAdapterProto
+
+        if not isinstance(adapter, QuadrupedAdapterProto):
+            raise TypeError("adapter must implement QuadrupedAdapter")
+
+        self._quad_adapter = adapter
+        self._component = component
+        self._joint_names = component.joints
+
+        self._last_commanded: dict[str, float] = {}
+        self._initialized = False
+        self._warned_unknown_joints: set[str] = set()
+        self._current_mode: ControlMode | None = None
+
+    @property
+    def adapter(self) -> QuadrupedAdapter:  # type: ignore[override]
+        """The underlying quadruped adapter."""
+        return self._quad_adapter
+
+    def disconnect(self) -> None:
+        """Disconnect the underlying adapter."""
+        self._quad_adapter.disconnect()
+
+    def read_state(self) -> dict[JointName, JointState]:
+        """Read motor states as {joint_name: JointState}."""
+        from dimos.control.components import JointState
+
+        motor_states = self._quad_adapter.read_motor_states()
+        return {
+            name: JointState(
+                position=motor_states[i].q,
+                velocity=motor_states[i].dq,
+                effort=motor_states[i].tau,
+            )
+            for i, name in enumerate(self._joint_names)
+        }
+
+    def write_command(self, commands: dict[str, float], _mode: ControlMode) -> bool:
+        """Write position commands — converts to MotorCommand with PD gains.
+
+        Args:
+            commands: {joint_name: target_position} - can be partial
+            _mode: Control mode (uses position PD regardless)
+
+        Returns:
+            True if command was sent successfully
+        """
+        from dimos.hardware.quadrupeds.spec import MotorCommand
+
+        if not self._initialized:
+            self._initialize_last_commanded()
+
+        for joint_name, value in commands.items():
+            if joint_name in self._joint_names:
+                self._last_commanded[joint_name] = value
+            elif joint_name not in self._warned_unknown_joints:
+                logger.warning(
+                    f"Quadruped {self.hardware_id} received command for unknown joint "
+                    f"{joint_name}. Valid joints: {self._joint_names}"
+                )
+                self._warned_unknown_joints.add(joint_name)
+
+        motor_cmds = [
+            MotorCommand(
+                q=self._last_commanded[name],
+                dq=0.0,
+                kp=_DEFAULT_KP,
+                kd=_DEFAULT_KD,
+                tau=0.0,
+            )
+            for name in self._joint_names
+        ]
+        return self._quad_adapter.write_motor_commands(motor_cmds)
+
+    def write_motor_commands(self, commands: list) -> bool:
+        """Direct pass-through to adapter for full MotorCommand control."""
+        return self._quad_adapter.write_motor_commands(commands)
+
+    def _initialize_last_commanded(self) -> None:
+        """Initialize last_commanded with current motor positions."""
+        motor_states = self._quad_adapter.read_motor_states()
+        for i, name in enumerate(self._joint_names):
+            self._last_commanded[name] = motor_states[i].q
+        self._initialized = True
+
+
 __all__ = [
     "ConnectedHardware",
+    "ConnectedQuadruped",
     "ConnectedTwistBase",
 ]
