@@ -117,7 +117,6 @@ def run(
 
     blueprint = autoconnect(*map(get_by_name, robot_types))
     dimos = blueprint.build(cli_config_overrides=cli_config_overrides)
-    dimos.monitor_stats = True
     dimos.loop()
 
 

@@ -43,18 +43,22 @@ class ModuleCoordinator(Resource):  # type: ignore[misc]
         self,
         n: int | None = None,
         cfg: GlobalConfig = global_config,
-        monitor_stats: bool = False,
     ) -> None:
         self._n = n if n is not None else cfg.n_workers
         self._memory_limit = cfg.memory_limit
         self._global_config = cfg
         self._deployed_modules = {}
-        self.monitor_stats = monitor_stats
 
     def start(self) -> None:
         n = self._n if self._n is not None else 2
         self._client = WorkerManager(n_workers=n)
         self._client.start()
+
+        if self._global_config.monitor_stats:
+            from dimos.core.resource_monitor.monitor import StatsMonitor
+
+            self._stats_monitor = StatsMonitor(self._client)
+            self._stats_monitor.start()
 
     def stop(self) -> None:
         if self._stats_monitor is not None:
@@ -108,12 +112,6 @@ class ModuleCoordinator(Resource):  # type: ignore[misc]
         return self._deployed_modules.get(module)  # type: ignore[return-value, no-any-return]
 
     def loop(self) -> None:
-        if self.monitor_stats and self._client is not None:
-            from dimos.core.resource_monitor.monitor import StatsMonitor
-
-            self._stats_monitor = StatsMonitor(self._client)
-            self._stats_monitor.start()
-
         stop = threading.Event()
         try:
             stop.wait()
