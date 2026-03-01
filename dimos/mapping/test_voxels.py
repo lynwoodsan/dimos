@@ -92,7 +92,6 @@ def test_carving(
     mapper.add_frame(lidar_frame2)
     count_carving = mapper.size()
 
-    # Additive count via numpy (avoids second VoxelBlockGrid allocation)
     voxel_size = mapper.config.voxel_size
     pts1 = np.asarray(lidar_frame1.pointcloud.points)
     pts2 = np.asarray(lidar_frame2.pointcloud.points)

@@ -20,7 +20,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 from dimos.utils.logging_config import setup_logger
 
 if TYPE_CHECKING:
-    from dimos.core.resource_monitor.stats import ProcessStats, WorkerStats
+    from dimos.core.resource_monitor.stats import ProcessStats
+    from dimos.core.worker import WorkerStats
 
 logger = setup_logger()
 

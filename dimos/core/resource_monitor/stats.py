@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TypedDict
 
 import psutil
@@ -41,14 +41,6 @@ class ProcessStats:
     num_fds: int = 0
     io_read_bytes: int = 0
     io_write_bytes: int = 0
-
-
-@dataclass(frozen=True)
-class WorkerStats(ProcessStats):
-    """Process stats extended with worker-specific metadata."""
-
-    worker_id: int = -1
-    modules: list[str] = field(default_factory=list)
 
 
 def _get_process(pid: int) -> psutil.Process:

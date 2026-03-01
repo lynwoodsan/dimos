@@ -11,16 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 import multiprocessing as mp
 import threading
 import traceback
 from typing import TYPE_CHECKING, Any
 
-from dimos.core.resource_monitor import WorkerStats, collect_process_stats
+from dimos.core.resource_monitor import ProcessStats, collect_process_stats
 from dimos.utils.logging_config import setup_logger
 from dimos.utils.sequential_ids import SequentialIds
 
@@ -30,6 +29,14 @@ if TYPE_CHECKING:
     from dimos.core.module import ModuleT
 
 logger = setup_logger()
+
+
+@dataclass(frozen=True)
+class WorkerStats(ProcessStats):
+    """Process stats extended with worker-specific metadata."""
+
+    worker_id: int = -1
+    modules: list[str] = field(default_factory=list)
 
 
 class ActorFuture:
