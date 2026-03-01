@@ -103,23 +103,19 @@ class ResourceSpyApp(App):  # type: ignore[type-arg]
 
     def compose(self) -> ComposeResult:
         table: DataTable = DataTable(zebra_stripes=True, cursor_type=None)  # type: ignore[type-arg, arg-type]
-        table.add_column("Role", width=14)
-        table.add_column("PID", width=8)
+        table.add_column("Modules", width=30)
         table.add_column("CPU %", width=8)
         table.add_column("CPU bar", width=14)
         table.add_column("User", width=8)
         table.add_column("Sys", width=8)
         table.add_column("IOw", width=8)
         table.add_column("PSS", width=10)
-        table.add_column("USS", width=10)
-        table.add_column("RSS", width=10)
-        table.add_column("VMS", width=10)
         table.add_column("Thr", width=5)
         table.add_column("Ch", width=5)
         table.add_column("FDs", width=5)
-        table.add_column("IO R", width=10)
-        table.add_column("IO W", width=10)
-        table.add_column("Modules", width=30)
+        table.add_column("IO R/W", width=14)
+        table.add_column("Role", width=14)
+        table.add_column("PID", width=8)
         yield table
 
     def on_mount(self) -> None:
@@ -170,8 +166,7 @@ class ResourceSpyApp(App):  # type: ignore[type-arg]
         dim = "#606060"
         s = dim if stale else None  # override style when stale
         table.add_row(
-            Text(role, style=s or role_style),
-            Text(str(d.get("pid", "?")), style=s or theme.BRIGHT_BLACK),
+            Text(modules, style=s or theme.BRIGHT_BLUE),
             Text(
                 f"{d.get('cpu_percent', 0):.0f}%",
                 style=s or _heat(min(d.get("cpu_percent", 0) / 100.0, 1.0)),
@@ -181,21 +176,15 @@ class ResourceSpyApp(App):  # type: ignore[type-arg]
             Text(_fmt_time(d.get("cpu_time_system", 0)).plain, style=s or theme.WHITE),
             Text(_fmt_time(d.get("cpu_time_iowait", 0)).plain, style=s or theme.WHITE),
             Text(_fmt_mb(d.get("pss_mb", 0)).plain, style=s or _fmt_mb(d.get("pss_mb", 0)).style),
-            Text(_fmt_mb(d.get("uss_mb", 0)).plain, style=s or _fmt_mb(d.get("uss_mb", 0)).style),
-            Text(_fmt_mb(d.get("rss_mb", 0)).plain, style=s or _fmt_mb(d.get("rss_mb", 0)).style),
-            Text(_fmt_mb(d.get("vms_mb", 0)).plain, style=s or _fmt_mb(d.get("vms_mb", 0)).style),
             Text(str(d.get("num_threads", 0)), style=s or theme.WHITE),
             Text(str(d.get("num_children", 0)), style=s or theme.WHITE),
             Text(str(d.get("num_fds", 0)), style=s or theme.WHITE),
             Text(
-                _fmt_mb(d.get("io_read_mb", 0)).plain,
-                style=s or _fmt_mb(d.get("io_read_mb", 0)).style,
+                f"{d.get('io_read_mb', 0):.0f}/{d.get('io_write_mb', 0):.0f}",
+                style=s or theme.WHITE,
             ),
-            Text(
-                _fmt_mb(d.get("io_write_mb", 0)).plain,
-                style=s or _fmt_mb(d.get("io_write_mb", 0)).style,
-            ),
-            Text(modules, style=s or theme.BRIGHT_BLUE),
+            Text(role, style=s or role_style),
+            Text(str(d.get("pid", "?")), style=s or theme.BRIGHT_BLACK),
         )
 
 

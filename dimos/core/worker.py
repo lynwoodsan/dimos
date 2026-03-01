@@ -46,9 +46,6 @@ class WorkerStats:
     cpu_time_system: float = 0.0
     cpu_time_iowait: float = 0.0
     pss_mb: float = 0.0
-    uss_mb: float = 0.0
-    rss_mb: float = 0.0
-    vms_mb: float = 0.0
     num_threads: int = 0
     num_children: int = 0
     num_fds: int = 0
@@ -69,13 +66,11 @@ def collect_process_stats(
         with proc.oneshot():
             cpu_pct = proc.cpu_percent(interval=None)
             ct = proc.cpu_times()
-            mem_basic = proc.memory_info()
             try:
                 mem_full = proc.memory_full_info()
                 pss = getattr(mem_full, "pss", 0) / _MB
-                uss = getattr(mem_full, "uss", 0) / _MB
             except (psutil.AccessDenied, AttributeError):
-                pss = uss = 0.0
+                pss = 0.0
             try:
                 io = proc.io_counters()
                 io_r = io.read_bytes / _MB
@@ -95,9 +90,6 @@ def collect_process_stats(
                 cpu_time_system=ct.system,
                 cpu_time_iowait=getattr(ct, "iowait", 0.0),
                 pss_mb=pss,
-                uss_mb=uss,
-                rss_mb=mem_basic.rss / _MB,
-                vms_mb=mem_basic.vms / _MB,
                 num_threads=proc.num_threads(),
                 num_children=len(proc.children(recursive=True)),
                 num_fds=fds,

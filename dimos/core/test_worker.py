@@ -179,7 +179,7 @@ def test_collect_stats(create_worker_manager):
     for s in stats:
         assert s.alive is True
         assert s.pid > 0
-        assert s.rss_mb > 0
+        assert s.pss_mb >= 0
         assert s.num_threads >= 1
         assert s.num_fds >= 0
         assert s.io_read_mb >= 0

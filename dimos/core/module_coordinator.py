@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import os
-import time
+import threading
 from typing import TYPE_CHECKING, Any
 
 from dimos.core.global_config import GlobalConfig, global_config
@@ -105,21 +105,17 @@ class ModuleCoordinator(Resource):  # type: ignore[misc]
     def loop(
         self,
         resource_logger: ResourceLogger | None = None,
-        monitor_interval: float = 0.5,
+        monitor_interval: float = 1.0,
     ) -> None:
         _logger: ResourceLogger = resource_logger or LCMResourceLogger()
         coordinator_pid = os.getpid()
         # Prime cpu_percent so the first real reading isn't 0.0.
         collect_process_stats(coordinator_pid)
 
-        last_monitor = time.monotonic()
+        stop = threading.Event()
         try:
-            while True:
-                time.sleep(0.1)
-                now = time.monotonic()
-                if now - last_monitor >= monitor_interval:
-                    last_monitor = now
-                    self._log_resource_stats(_logger, coordinator_pid)
+            while not stop.wait(monitor_interval):
+                self._log_resource_stats(_logger, coordinator_pid)
         except KeyboardInterrupt:
             return
         finally:
