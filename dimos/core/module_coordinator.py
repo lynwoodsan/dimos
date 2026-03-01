@@ -24,7 +24,6 @@ from dimos.core.resource import Resource
 from dimos.core.resource_monitor import (
     LCMResourceLogger,
     ResourceLogger,
-    WorkerStats,
     collect_process_stats,
 )
 from dimos.core.worker_manager import WorkerManager
@@ -33,6 +32,7 @@ from dimos.utils.logging_config import setup_logger
 if TYPE_CHECKING:
     from dimos.core.module import Module, ModuleT
     from dimos.core.rpc_client import ModuleProxy
+    from dimos.core.worker import WorkerStats
 
 logger = setup_logger()
 
