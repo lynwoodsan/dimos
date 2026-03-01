@@ -357,8 +357,9 @@ else
     echo "Simulation mode - Auto-starting ROS simulation and DimOS"
     echo ""
     echo "The container will automatically run:"
-    echo "  - ROS navigation stack with route planner"
+    echo "  - ROS navigation stack"
     echo "  - DimOS navigation demo"
+    echo "  - RViz2 visualization"
     echo ""
     echo "To enter the container from another terminal:"
     echo "  docker exec -it ${CONTAINER_NAME} bash"
@@ -396,6 +397,10 @@ else
     # retry logic and proper startup sequencing.
     # Also mounts the patched ros_tcp_endpoint/server.py which fixes a JSON
     # null-terminator stripping bug that crashes every Unity TCP connection.
+
+    # Default RViz to enabled for simulation (matches old compose/run_both.sh behaviour).
+    # Pass --rviz explicitly to keep it enabled; there is no --no-rviz flag.
+    USE_RVIZ="true"
 
     DIMOS_ROOT="${SCRIPT_DIR}/../.."
     UNITY_MODELS_DIR="${SCRIPT_DIR}/unity_models"
