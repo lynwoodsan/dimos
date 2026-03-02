@@ -369,14 +369,14 @@ def test_ttl_cache_sweep_on_access() -> None:
 
     expensive(1)
     expensive(2)
-    assert len(expensive._cache) == 2
+    assert len(expensive.cache) == 2
     time.sleep(0.1)
 
     # Next call sweeps expired entries
     expensive(3)
-    assert (1,) not in expensive._cache
-    assert (2,) not in expensive._cache
-    assert (3,) in expensive._cache
+    assert (1,) not in expensive.cache
+    assert (2,) not in expensive.cache
+    assert (3,) in expensive.cache
 
 
 def test_ttl_cache_manual_cache_cleanup() -> None:
@@ -387,6 +387,6 @@ def test_ttl_cache_manual_cache_cleanup() -> None:
         return x * 2
 
     expensive(1)
-    assert (1,) in expensive._cache
-    expensive.evict(1)
-    assert (1,) not in expensive._cache
+    assert (1,) in expensive.cache
+    del expensive.cache[(1,)]
+    assert (1,) not in expensive.cache
