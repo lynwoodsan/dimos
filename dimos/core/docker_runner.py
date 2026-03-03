@@ -162,9 +162,12 @@ class DockerModule:
     Host-side handle for a module running inside Docker.
 
     Lifecycle:
-    - start(): launches container, waits for module ready via RPC
-    - stop(): stops container
-    - __getattr__: exposes RpcCall for @rpc methods on remote module
+    - start():     idempotent two-phase start. First call (from _deploy_all_modules)
+                   launches the container and waits for RPC readiness. Second call
+                   (from start_all_modules, after streams are wired) calls the
+                   remote Module.start(). Matches Dask module lifecycle.
+    - stop():      stops the container.
+    - __getattr__: exposes RpcCall for @rpc methods on remote module.
 
     Communication: All RPC happens via LCM multicast (requires --network=host).
     """
@@ -179,7 +182,8 @@ class DockerModule:
         self._config = config
         self._args = args
         self._kwargs = kwargs
-        self._running = False
+        self._running = False       # True once container is up and RPC is reachable
+        self._module_started = False  # True once remote Module.start() has been called
         self.remote_name = module_class.__name__
         self._container_name = (
             config.docker_container_name
@@ -212,30 +216,54 @@ class DockerModule:
         return calls[0] if len(calls) == 1 else calls
 
     def start(self) -> None:
-        if self._running:
-            return
+        """Start the Docker module.
 
-        cfg = self._config
+        Called twice by the blueprint framework:
+          1. From _deploy_all_modules: launches the container and waits for
+             the RPC endpoint to respond. Returns without calling remote start()
+             so _connect_streams() can wire transports first.
+          2. From start_all_modules (after streams are wired): calls remote
+             Module.start() so the module sees fully-configured transports.
 
-        # Prevent accidental kill of running container with same name
-        if _is_container_running(cfg, self._container_name):
-            raise RuntimeError(
-                f"Container '{self._container_name}' already running. "
-                "Choose a different container_name or stop the existing container."
-            )
-        _remove_container(cfg, self._container_name)
+        Calling start() directly (outside the blueprint) does both in one call.
+        """
+        if not self._running:
+            cfg = self._config
 
-        cmd = self._build_docker_run_command()
-        logger.info(f"Starting docker container: {self._container_name}")
-        r = _run(cmd, timeout=DOCKER_RUN_TIMEOUT)
-        if r.returncode != 0:
-            raise RuntimeError(
-                f"Failed to start container.\nSTDOUT:\n{r.stdout}\nSTDERR:\n{r.stderr}"
-            )
+            if _is_container_running(cfg, self._container_name):
+                raise RuntimeError(
+                    f"Container '{self._container_name}' already running. "
+                    "Choose a different container_name or stop the existing container."
+                )
+            _remove_container(cfg, self._container_name)
 
-        self.rpc.start()
-        self._running = True
-        self._wait_for_ready()
+            cmd = self._build_docker_run_command()
+            logger.info(f"Starting docker container: {self._container_name}")
+            r = _run(cmd, timeout=DOCKER_RUN_TIMEOUT)
+            if r.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to start container.\nSTDOUT:\n{r.stdout}\nSTDERR:\n{r.stderr}"
+                )
+
+            self.rpc.start()
+            self._running = True
+            self._wait_for_rpc_ready()
+            return  # Phase 2 (remote start) runs on second call, after stream wiring
+
+        if not self._module_started:
+            self._module_started = True
+            elapsed_start = time.time()
+            try:
+                self.rpc.call_sync(
+                    f"{self.remote_name}/start",
+                    ([], {}),
+                    rpc_timeout=self._config.docker_startup_timeout,
+                )
+            except Exception:
+                logger.error(f"Remote start failed for {self.remote_name}, stopping container.")
+                self.stop()
+                raise
+            logger.info(f"{self.remote_name} started ({time.time() - elapsed_start:.1f}s)")
 
     def stop(self) -> None:
         """Gracefully stop the Docker container and clean up resources."""
@@ -407,8 +435,13 @@ class DockerModule:
         # DimOS base image entrypoint already runs "dimos.core.docker_runner run"
         return ["--payload", json.dumps(payload, separators=(",", ":"))]
 
-    def _wait_for_ready(self) -> None:
-        """Poll the module's RPC endpoint until ready, crashed, or timeout."""
+    def _wait_for_rpc_ready(self) -> None:
+        """Poll until the remote module's RPC endpoint responds (side-effect free).
+
+        Uses get_rpc_method_names as the probe — it has no side effects and
+        succeeds as soon as the module's __init__ finishes and the RPC listener
+        is running, without triggering start() prematurely.
+        """
         cfg = self._config
         start_time = time.time()
 
@@ -421,7 +454,9 @@ class DockerModule:
 
             try:
                 self.rpc.call_sync(
-                    f"{self.remote_name}/start", ([], {}), rpc_timeout=RPC_READY_TIMEOUT
+                    f"{self.remote_name}/get_rpc_method_names",
+                    ([], {}),
+                    rpc_timeout=RPC_READY_TIMEOUT,
                 )
                 elapsed = time.time() - start_time
                 logger.info(f"{self.remote_name} ready ({elapsed:.1f}s)")

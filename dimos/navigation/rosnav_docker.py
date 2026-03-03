@@ -71,9 +71,7 @@ from dimos.agents.annotation import skill
 from dimos.core.core import rpc
 from dimos.core.docker_runner import DockerModuleConfig
 from dimos.core.module import Module
-from dimos.core.module_coordinator import ModuleCoordinator
 from dimos.core.stream import In, Out
-from dimos.core.transport import JpegLcmTransport, LCMTransport
 from dimos.utils.data import get_data
 from dimos.msgs.geometry_msgs import (
     PoseStamped,
@@ -384,8 +382,7 @@ class ROSNav(
         )
         self._spin_thread.start()
 
-        # if self.goal_req:
-        #     self.goal_req.subscribe(self._on_goal_pose)
+        self.goal_req.subscribe(self._on_goal_pose)
         logger.info("NavigationModule started with ROS2 spinning")
 
     def _spin_node(self) -> None:
@@ -545,7 +542,7 @@ class ROSNav(
         soft_stop_msg.data = 0
         self.soft_stop_pub.publish(soft_stop_msg)
 
-        ros_pose = pose.to_ros_msg()
+        ros_pose = _pose_stamped_to_ros(pose)
         self.goal_pose_pub.publish(ros_pose)
 
         # Wait for goal to be reached
@@ -669,21 +666,21 @@ class ROSNav(
 ros_nav = ROSNav.blueprint
 
 
-def deploy(dimos: ModuleCoordinator):  # type: ignore[no-untyped-def]
-    nav = dimos.deploy(ROSNav)  # type: ignore[attr-defined, type-abstract]
-
-    # Existing ports on LCM transports
-    nav.image.transport = JpegLcmTransport("/camera", Image)
-    nav.pointcloud.transport = LCMTransport("/lidar", PointCloud2)
-    nav.global_pointcloud.transport = LCMTransport("/map", PointCloud2)
-    nav.overall_map.transport = LCMTransport("/overall_map", PointCloud2)
-    nav.goal_req.transport = LCMTransport("/goal_req", PoseStamped)
-    nav.goal_active.transport = LCMTransport("/goal_active", PoseStamped)
-    nav.path_active.transport = LCMTransport("/path_active", NavPath)
-    nav.cmd_vel.transport = LCMTransport("/cmd_vel", Twist)
-
-    nav.start()
-    return nav
+def _pose_stamped_to_ros(pose: PoseStamped) -> "ROSPoseStamped":
+    """Convert a DimOS PoseStamped to a ROS2 geometry_msgs/PoseStamped."""
+    msg = ROSPoseStamped()
+    msg.header.frame_id = pose.frame_id
+    ts_sec = int(pose.ts)
+    msg.header.stamp.sec = ts_sec
+    msg.header.stamp.nanosec = int((pose.ts - ts_sec) * 1_000_000_000)
+    msg.pose.position.x = float(pose.position.x)
+    msg.pose.position.y = float(pose.position.y)
+    msg.pose.position.z = float(pose.position.z)
+    msg.pose.orientation.x = float(pose.orientation.x)
+    msg.pose.orientation.y = float(pose.orientation.y)
+    msg.pose.orientation.z = float(pose.orientation.z)
+    msg.pose.orientation.w = float(pose.orientation.w)
+    return msg
 
 
 def _image_from_ros_compressed(msg: "ROSCompressedImage") -> Image:
@@ -787,4 +784,4 @@ def _tfmessage_from_ros(msg: "ROSTFMessage") -> TFMessage:
     return TFMessage(*transforms)
 
 
-__all__ = ["ROSNav", "deploy", "ros_nav"]
+__all__ = ["ROSNav", "ros_nav"]

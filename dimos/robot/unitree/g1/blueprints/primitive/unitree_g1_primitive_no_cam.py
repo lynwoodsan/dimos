@@ -94,8 +94,10 @@ unitree_g1_primitive_no_cam = (
             ("odom", PoseStamped): LCMTransport("/odom", PoseStamped),
             # Navigation module topics from nav_bot
             ("goal_req", PoseStamped): LCMTransport("/goal_req", PoseStamped),
+            ("goal_request", PoseStamped): LCMTransport("/goal_req", PoseStamped),
             ("goal_active", PoseStamped): LCMTransport("/goal_active", PoseStamped),
             ("path_active", Path): LCMTransport("/path_active", Path),
+            ("path", Path): LCMTransport("/path_active", Path),
             ("pointcloud", PointCloud2): LCMTransport("/lidar", PointCloud2),
             ("global_pointcloud", PointCloud2): LCMTransport("/map", PointCloud2),
             ("overall_map", PointCloud2): LCMTransport("/overall_map", PointCloud2),
