@@ -324,17 +324,19 @@ class UnitreeG1TwistAdapter:
 
     def _get_fsm_id(self) -> int | None:
         """Query the current FSM ID from the robot. Returns None on failure."""
+        import json
+
         from unitree_sdk2py.g1.loco.g1_loco_api import ROBOT_API_ID_LOCO_GET_FSM_ID
 
         session = self._get_session()
         try:
+            # LocoClient has no public GetFsmId() — _Call is the standard RPC
+            # dispatch used by all SDK methods (SetFsmId, Move, etc.).
             code, data = session.client._Call(ROBOT_API_ID_LOCO_GET_FSM_ID, "{}")
             if code == 0 and data:
-                # data is like '{"data":4}' — extract the number
-                for token in str(data).split(":"):
-                    token = token.strip().rstrip("}")
-                    if token.lstrip("-").isdigit():
-                        return int(token)
+                # data is like '{"data":4}' — parse as JSON for exact match
+                parsed = json.loads(str(data))
+                return int(parsed["data"])
         except Exception as e:
             logger.warning(f"Error querying FSM state: {e}")
         return None
@@ -350,20 +352,14 @@ class UnitreeG1TwistAdapter:
         Returns:
             True if the target state was reached, False on timeout.
         """
-        from unitree_sdk2py.g1.loco.g1_loco_api import ROBOT_API_ID_LOCO_GET_FSM_ID
-
-        session = self._get_session()
         deadline = time.time() + timeout
 
         while time.time() < deadline:
-            try:
-                code, data = session.client._Call(ROBOT_API_ID_LOCO_GET_FSM_ID, "{}")
-                if code == 0 and str(target_fsm) in str(data):
-                    logger.info(f"G1 reached FSM {target_fsm}, settling for {settle}s...")
-                    time.sleep(settle)
-                    return True
-            except Exception as e:
-                logger.warning(f"Error polling FSM state: {e}")
+            fsm = self._get_fsm_id()
+            if fsm == target_fsm:
+                logger.info(f"G1 reached FSM {target_fsm}, settling for {settle}s...")
+                time.sleep(settle)
+                return True
             time.sleep(1)
 
         logger.error(f"Timed out waiting for G1 FSM {target_fsm}")

@@ -141,9 +141,7 @@ class UnitreeG1WebRTCTwistAdapter:
             try:
                 self._send_zero_velocity(conn)
                 time.sleep(0.3)
-                logger.info("Stopping the G1 via WebRTC...")
-                conn.liedown()
-                time.sleep(2)
+                logger.info("Disconnecting G1 via WebRTC...")
             except Exception as e:
                 logger.error(f"Error during shutdown sequence: {e}")
 
