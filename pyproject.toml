@@ -65,6 +65,7 @@ dependencies = [
     "rerun-sdk>=0.20.0",
     "toolz>=1.1.0",
     "protobuf>=6.33.5,<7",
+    "psutil>=7.0.0",
 ]
 
 
@@ -77,6 +78,7 @@ humancli = "dimos.utils.cli.human.humanclianim:main"
 dimos = "dimos.robot.cli.dimos:main"
 rerun-bridge = "dimos.visualization.rerun.bridge:app"
 doclinks = "dimos.utils.docs.doclinks:main"
+dtop = "dimos.utils.cli.dtop:main"
 
 [project.optional-dependencies]
 misc = [
@@ -210,7 +212,7 @@ dev = [
     "pytest-mock==3.15.0",
     "pytest-env==1.1.5",
     "pytest-timeout==2.4.0",
-    "coverage>=7.0",  # Required for numba compatibility (coverage.types)
+    "coverage>=7.0",
     "requests-mock==1.12.1",
     "terminaltexteffects==0.12.2",
     "watchdog>=3.0.0",
@@ -323,8 +325,12 @@ exclude = [
 
 [tool.ruff.lint]
 extend-select = ["E", "W", "F", "B", "UP", "N", "I", "C90", "A", "RUF", "TCH"]
-# TODO: All of these should be fixed, but it's easier commit autofixes first
-ignore = ["A001", "A002", "B008", "B017", "B019", "B024", "B026", "B904", "C901", "E402", "E501", "E721", "E722", "E741", "F811", "F821", "F821", "F821", "N801", "N802", "N803", "N806", "N817", "N999", "RUF003", "RUF009", "RUF012", "RUF034", "RUF043", "RUF059", "UP007"]
+ignore = [
+    # TODO: All of these should be fixed, but it's easier commit autofixes first
+    "A001", "A002", "B008", "B017", "B019", "B024", "B026", "B904", "C901", "E402", "E501", "E721", "E722", "E741", "F811", "F821", "F821", "F821", "N801", "N802", "N803", "N806", "N817", "N999", "RUF003", "RUF009", "RUF012", "RUF034", "RUF043", "RUF059", "UP007",
+    # This breaks runtime type checking (both for us, and users introspecting our APIs)
+    "TC001", "TC002", "TC003"
+]
 
 [tool.ruff.lint.per-file-ignores]
 "dimos/models/Detic/*" = ["ALL"]
@@ -397,6 +403,16 @@ env = [
 addopts = "-v -r a -p no:warnings --color=yes -m 'not (tool or slow or mujoco)'"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+source = ["dimos"]
+parallel = true
+sigterm = true
+concurrency = ["multiprocessing", "thread"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
 
 [tool.largefiles]
 max_size_kb = 50

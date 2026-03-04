@@ -19,7 +19,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from dimos.mapping.occupancy.path_map import NavigationStrategy
 
-ViewerBackend: TypeAlias = Literal["rerun", "rerun-web", "foxglove", "none"]
+ViewerBackend: TypeAlias = Literal["rerun", "rerun-web", "rerun-connect", "foxglove", "none"]
 
 
 def _get_all_numbers(s: str) -> list[float]:
@@ -45,6 +45,7 @@ class GlobalConfig(BaseSettings):
     robot_rotation_diameter: float = 0.6
     planner_strategy: NavigationStrategy = "simple"
     planner_robot_speed: float | None = None
+    dtop: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

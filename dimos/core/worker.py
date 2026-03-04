@@ -11,21 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 from __future__ import annotations
 
 import multiprocessing as mp
+from multiprocessing.connection import Connection
 import threading
 import traceback
 from typing import TYPE_CHECKING, Any
 
+from dimos.core.global_config import GlobalConfig, global_config
 from dimos.utils.logging_config import setup_logger
 from dimos.utils.sequential_ids import SequentialIds
 
 if TYPE_CHECKING:
-    from multiprocessing.connection import Connection
-
-    from dimos.core.module import ModuleT
+    from dimos.core.module import ModuleBase
 
 logger = setup_logger()
 
@@ -73,7 +72,7 @@ class Actor:
     def __init__(
         self,
         conn: Connection | None,
-        module_class: type[ModuleT],
+        module_class: type[ModuleBase],
         worker_id: int,
         module_id: int = 0,
         lock: threading.Lock | None = None,
@@ -141,8 +140,6 @@ _module_ids = SequentialIds()
 
 
 class Worker:
-    """Generic worker process that can host multiple modules."""
-
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._modules: dict[int, Actor] = {}
@@ -154,6 +151,22 @@ class Worker:
     @property
     def module_count(self) -> int:
         return len(self._modules) + self._reserved
+
+    @property
+    def pid(self) -> int | None:
+        """PID of the worker process, or ``None`` if not alive."""
+        if self._process is not None and self._process.is_alive():
+            p: int | None = self._process.pid
+            return p
+        return None
+
+    @property
+    def worker_id(self) -> int:
+        return self._worker_id
+
+    @property
+    def module_names(self) -> list[str]:
+        return [actor._cls.__name__ for actor in self._modules.values()]
 
     def reserve_slot(self) -> None:
         """Reserve a slot so _select_worker() sees the pending load."""
@@ -173,9 +186,9 @@ class Worker:
 
     def deploy_module(
         self,
-        module_class: type[ModuleT],
-        args: tuple[Any, ...] = (),
-        kwargs: dict[Any, Any] | None = None,
+        module_class: type[ModuleBase],
+        global_config: GlobalConfig = global_config,
+        kwargs: dict[str, Any] | None = None,
     ) -> Actor:
         if self._conn is None:
             raise RuntimeError("Worker process not started")
@@ -188,7 +201,7 @@ class Worker:
             "type": "deploy_module",
             "module_id": module_id,
             "module_class": module_class,
-            "args": args,
+            "global_config": global_config,
             "kwargs": kwargs,
         }
         with self._lock:
@@ -241,10 +254,7 @@ class Worker:
             self._process = None
 
 
-def _worker_entrypoint(
-    conn: Connection,
-    worker_id: int,
-) -> None:
+def _worker_entrypoint(conn: Connection, worker_id: int) -> None:
     instances: dict[int, Any] = {}
 
     try:
@@ -294,10 +304,10 @@ def _worker_loop(conn: Connection, instances: dict[int, Any], worker_id: int) ->
 
             if req_type == "deploy_module":
                 module_class = request["module_class"]
-                args = request.get("args", ())
+                request["global_config"]
                 kwargs = request.get("kwargs", {})
                 module_id = request["module_id"]
-                instance = module_class(*args, **kwargs)
+                instance = module_class(global_config, **kwargs)
                 instances[module_id] = instance
                 response["result"] = module_id
 

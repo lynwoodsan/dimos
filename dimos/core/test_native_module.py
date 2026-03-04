@@ -18,7 +18,6 @@ Every test launches the real native_echo.py subprocess via blueprint.build().
 The echo script writes received CLI args to a temp file for assertions.
 """
 
-from dataclasses import dataclass
 import json
 from pathlib import Path
 import time
@@ -59,7 +58,6 @@ def read_json_file(path: str) -> dict[str, str]:
     return result
 
 
-@dataclass(kw_only=True)
 class StubNativeConfig(NativeModuleConfig):
     executable: str = _ECHO
     log_format: LogFormat = LogFormat.TEXT
@@ -165,6 +163,12 @@ def test_autoconnect(args_file: str) -> None:
 
         # Custom transport was applied
         assert native.pointcloud.transport.topic.topic == "/my/custom/lidar"
+
+        # Wait for the native subprocess to write the output file
+        for _ in range(50):
+            if Path(args_file).exists():
+                break
+            time.sleep(0.1)
     finally:
         coordinator.stop()
 

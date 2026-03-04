@@ -15,6 +15,7 @@
 from collections.abc import Callable, Generator
 import functools
 from typing import TypedDict
+from unittest import mock
 
 from dimos_lcm.foxglove_msgs.ImageAnnotations import ImageAnnotations
 from dimos_lcm.foxglove_msgs.SceneUpdate import SceneUpdate
@@ -113,7 +114,8 @@ def get_moment(tf):
             "tf": tf,
         }
 
-    return moment_provider
+    yield moment_provider
+    moment_provider.cache_clear()
 
 
 @pytest.fixture(scope="session")
@@ -203,7 +205,8 @@ def detection3dpc(detections3dpc) -> Detection3DPC:
 def get_moment_2d(get_moment) -> Generator[Callable[[], Moment2D], None, None]:
     from dimos.perception.detection.detectors import Yolo2DDetector
 
-    module = Detection2DModule(detector=lambda: Yolo2DDetector(device="cpu"))
+    c = mock.create_autospec(CameraInfo, spec_set=True, instance=True)
+    module = Detection2DModule(detector=lambda: Yolo2DDetector(device="cpu"), camera_info=c)
 
     @functools.lru_cache(maxsize=1)
     def moment_provider(**kwargs) -> Moment2D:
@@ -217,6 +220,7 @@ def get_moment_2d(get_moment) -> Generator[Callable[[], Moment2D], None, None]:
 
     yield moment_provider
 
+    moment_provider.cache_clear()
     module._close_module()
 
 
@@ -250,6 +254,7 @@ def get_moment_3dpc(get_moment_2d) -> Generator[Callable[[], Moment3D], None, No
         }
 
     yield moment_provider
+    moment_provider.cache_clear()
     if module is not None:
         module._close_module()
 
@@ -259,7 +264,8 @@ def object_db_module(get_moment):
     """Create and populate an ObjectDBModule with detections from multiple frames."""
     from dimos.perception.detection.detectors import Yolo2DDetector
 
-    module2d = Detection2DModule(detector=lambda: Yolo2DDetector(device="cpu"))
+    c = mock.create_autospec(CameraInfo, spec_set=True, instance=True)
+    module2d = Detection2DModule(detector=lambda: Yolo2DDetector(device="cpu"), camera_info=c)
     module3d = Detection3DModule(camera_info=connection._camera_info_static())
     moduleDB = ObjectDBModule(camera_info=connection._camera_info_static())
 
