@@ -43,7 +43,7 @@ unitree_g1_webrtc_coordinator = control_coordinator(
             hardware_type=HardwareType.BASE,
             joints=_g1_joints,
             adapter_type="unitree_g1_webrtc",
-            address=os.getenv("ROBOT_IP", "192.168.123.164"),
+            address=os.getenv("ROBOT_IP"),
         ),
     ],
     tasks=[

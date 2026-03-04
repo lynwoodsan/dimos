@@ -120,7 +120,7 @@ class UnitreeG1WebRTCTwistAdapter:
                 _G1_SPORT_TOPIC,
                 {"api_id": _G1_SET_FSM_ID, "parameter": {"data": _FSM_LOCK_STAND}},
             )
-            time.sleep(10)  # Wait for robot to finish standing
+            time.sleep(6)  # Wait for robot to finish standing
             logger.info("G1 WebRTC: lock stand ready")
 
             return True
@@ -141,7 +141,7 @@ class UnitreeG1WebRTCTwistAdapter:
             try:
                 self._send_zero_velocity(conn)
                 time.sleep(0.3)
-                logger.info("Lying down G1 via WebRTC...")
+                logger.info("Stopping the G1 via WebRTC...")
                 conn.liedown()
                 time.sleep(2)
             except Exception as e:
