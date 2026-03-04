@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING
 from dimos.utils.logging_config import setup_logger
 
 if TYPE_CHECKING:
-    from reactivex.disposable import Disposable
+    from reactivex.abc import DisposableBase
 
     from dimos.hardware.drive_trains.registry import TwistBaseAdapterRegistry
     from dimos.msgs.geometry_msgs import Pose
@@ -91,7 +91,7 @@ class UnitreeG1WebRTCTwistAdapter:
 
         # Latest odometry from odom_stream subscription
         self._latest_odom: list[float] | None = None
-        self._odom_disposable: Disposable | None = None
+        self._odom_disposable: DisposableBase | None = None
 
     # =========================================================================
     # Connection
