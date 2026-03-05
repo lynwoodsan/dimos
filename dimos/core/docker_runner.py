@@ -140,31 +140,6 @@ def _tail_logs(cfg: DockerModuleConfig, name: str, n: int = LOG_TAIL_LINES) -> s
     return out + ("\n" + err if err else "")
 
 
-def _prompt_reconnect(container_name: str) -> bool:
-    """Ask the user whether to restart a running container.
-
-    Returns True to restart, False to reuse.
-    Falls back to restart when stdin is not a TTY (e.g. CI).
-    """
-    import sys
-
-    if not sys.stdin.isatty():
-        logger.warning(
-            f"Container '{container_name}' already running — restarting (non-interactive)."
-        )
-        return False
-
-    print(f"\nContainer '{container_name}' is already running.")
-    print("  [r] Restart  — stop the existing container and start a fresh one")
-    print("  [u] Use      — attach to the existing container as-is")
-    while True:
-        choice = input("Choice [r/u]: ").strip().lower()
-        if choice in ("r", "restart"):
-            return False
-        if choice in ("u", "use"):
-            return True
-        print("Please enter 'r' or 'u'.")
-
 
 def _extract_module_config(cfg: DockerModuleConfig) -> dict[str, Any]:
     """Extract JSON-serializable config fields for the container (excludes docker_* fields)."""
@@ -235,20 +210,22 @@ class DockerModule(ModuleProxy):
 
             reconnect = False
             if _is_container_running(config, self._container_name):
-                reconnect = _prompt_reconnect(self._container_name)
-                if not reconnect:
+                if config.docker_reconnect_container:
+                    logger.info(f"Reconnecting to running container: {self._container_name}")
+                    reconnect = True
+                else:
+                    logger.info(f"Stopping existing container: {self._container_name}")
                     _run([_docker_bin(config), "stop", self._container_name], timeout=DOCKER_STOP_TIMEOUT)
+
             if not reconnect:
                 _remove_container(config, self._container_name)
-
-            cmd = self._build_docker_run_command()
-            logger.info(f"Starting docker container: {self._container_name}")
-            r = _run(cmd, timeout=DOCKER_RUN_TIMEOUT)
-            if r.returncode != 0:
-                raise RuntimeError(
-                    f"Failed to start container.\nSTDOUT:\n{r.stdout}\nSTDERR:\n{r.stderr}"
-                )
-
+                cmd = self._build_docker_run_command()
+                logger.info(f"Starting docker container: {self._container_name}")
+                r = _run(cmd, timeout=DOCKER_RUN_TIMEOUT)
+                if r.returncode != 0:
+                    raise RuntimeError(
+                        f"Failed to start container.\nSTDOUT:\n{r.stdout}\nSTDERR:\n{r.stderr}"
+                    )
             self.rpc.start()
             self._running = True
             # docker run -d returns before Module.__init__ finishes in the container,
