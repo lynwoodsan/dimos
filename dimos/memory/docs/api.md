@@ -321,20 +321,15 @@ results = clip_embeddings.search_embedding("a door", k=10).fetch()
 
 ## Visualization
 
-`dimos.memory.viz` provides helpers for visualizing search results:
+`dimos.memory.rerun` sends stream contents to Rerun:
 
 ```python
-from dimos.memory.viz import similarity_heatmap, log_similarity_timeline
+from dimos.memory.rerun import to_rerun
 
-# Get raw results (with similarity scores and poses)
-results = embeddings.search_embedding("a hallway", k=200, raw=True).fetch()
-
-# Spatial heatmap → OccupancyGrid (publishable via LCM, renderable in Rerun)
-grid = similarity_heatmap(results, resolution=0.5, spread=2.0)
-rr.log("world/heatmap", grid.to_rerun(colormap="inferno"))
-
-# Temporal timeline → Rerun scalar plot
-log_similarity_timeline(results, entity_path="plots/similarity")
+# Send any stream to Rerun — auto-derives entity path from stream name,
+# logs .data via to_rerun() and poses as arrows
+to_rerun(images)
+to_rerun(embeddings.search_embedding("a hallway", k=50))
 ```
 
 ## Full Example: Cigarette Detection Pipeline

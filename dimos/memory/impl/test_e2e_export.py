@@ -37,6 +37,8 @@ from dimos.msgs.sensor_msgs.Image import Image
 from dimos.utils.testing import TimedSensorReplay
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from dimos.memory.stream import EmbeddingStream
 
 DB_DIR = Path(__file__).parent / "e2e_matches"
@@ -52,7 +54,7 @@ def clip() -> CLIPModel:
 
 
 @pytest.fixture(scope="module")
-def e2e_db(clip: CLIPModel) -> tuple[SqliteStore, Any]:
+def e2e_db(clip: CLIPModel) -> Generator[tuple[SqliteStore, Any], None, None]:
     """Build (or reuse cached) e2e DB with video → sharpness → CLIP embeddings."""
     store = SqliteStore(str(DB_PATH))
     session = store.session()
@@ -86,7 +88,8 @@ def e2e_db(clip: CLIPModel) -> tuple[SqliteStore, Any]:
 @pytest.fixture(scope="module")
 def embeddings(e2e_db: tuple[SqliteStore, Any], clip: CLIPModel) -> EmbeddingStream[Any]:
     _, session = e2e_db
-    return session.embedding_stream("clip_embeddings", embedding_model=clip)
+    stream: EmbeddingStream[Any] = session.embedding_stream("clip_embeddings", embedding_model=clip)  # type: ignore[assignment]
+    return stream
 
 
 class TestEmbeddingSearch:

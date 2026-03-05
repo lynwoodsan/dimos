@@ -74,5 +74,8 @@ def to_rerun(
             rr.log(entity_path, data.to_rerun())
             count += 1
 
+        if obs.pose is not None and hasattr(obs.pose, "to_rerun_arrow"):
+            rr.log(f"{entity_path}/pose", obs.pose.to_rerun_arrow())
+
     rr.reset_time()
     return count
