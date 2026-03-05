@@ -143,10 +143,10 @@ class NearFilter:
 
 @dataclass(frozen=True)
 class TagsFilter:
-    tags: dict[str, Any]
+    tags: tuple[tuple[str, Any], ...]
 
     def matches(self, obs: Observation) -> bool:
-        return all(obs.tags.get(k) == v for k, v in self.tags.items())
+        return all(obs.tags.get(k) == v for k, v in self.tags)
 
 
 @dataclass(frozen=True)

@@ -906,7 +906,7 @@ class TestMatchesFilters:
     def test_tags_filter(self) -> None:
         from dimos.memory.types import TagsFilter
 
-        f = TagsFilter({"cam": "front"})
+        f = TagsFilter((("cam", "front"),))
         assert f.matches(Observation(id=1, tags={"cam": "front", "quality": "high"})) is True
         assert f.matches(Observation(id=2, tags={"cam": "rear"})) is False
         assert f.matches(Observation(id=3, tags={})) is False

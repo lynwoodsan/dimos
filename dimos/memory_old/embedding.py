@@ -109,6 +109,3 @@ class EmbeddingMemory(Module[Config]):
         self.config.embedding_model.embed_text(query)
         results: list[SpatialEmbedding] = []
         return results
-        return results
-        return results
-        return results

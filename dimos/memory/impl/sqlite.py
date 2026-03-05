@@ -29,6 +29,7 @@ Poses are decomposed into columns. Tags are JSON.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from typing import TYPE_CHECKING, Any
@@ -66,6 +67,16 @@ from dimos.memory.types import (
 if TYPE_CHECKING:
     from dimos.memory.types import PoseProvider
     from dimos.models.embedding.base import EmbeddingModel
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_ALLOWED_ORDER_FIELDS = frozenset({"id", "ts"})
+
+
+def _validate_identifier(name: str) -> str:
+    """Validate that *name* is a safe SQL identifier (alphanumeric + underscore)."""
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"Invalid identifier: {name!r}")
+    return name
 
 
 # ── Pose helpers (column-based) ──────────────────────────────────────
@@ -131,7 +142,8 @@ def _compile_filter(f: Filter, table: str) -> tuple[str, list[Any]]:
     if isinstance(f, TagsFilter):
         clauses: list[str] = []
         params: list[Any] = []
-        for key, val in f.tags.items():
+        for key, val in f.tags:
+            _validate_identifier(key)
             clauses.append(f"json_extract({table}.tags, '$.{key}') = ?")
             params.append(val)
         return " AND ".join(clauses), params
@@ -259,8 +271,10 @@ def _compile_query(query: StreamQuery, table: str) -> tuple[str, list[Any]]:
     where = " AND ".join(where_parts) if where_parts else "1=1"
     join_clause = " ".join(joins)
 
-    order = f"ORDER BY {query.order_field}"
     if query.order_field:
+        if query.order_field not in _ALLOWED_ORDER_FIELDS:
+            raise ValueError(f"Invalid order field: {query.order_field!r}")
+        order = f"ORDER BY {table}.{query.order_field}"
         if query.order_desc:
             order += " DESC"
     else:
@@ -347,6 +361,7 @@ class SqliteStreamBackend:
         pose_provider: PoseProvider | None = None,
         codec: LcmCodec | JpegCodec | PickleCodec | None = None,
     ) -> None:
+        _validate_identifier(table)
         self._conn = conn
         self._table = table
         self._pose_provider = pose_provider
@@ -567,6 +582,10 @@ class SqliteEmbeddingBackend(SqliteStreamBackend):
         for obs in observations:
             if isinstance(obs, EmbeddingObservation):
                 obs.similarity = max(0.0, min(1.0, 1.0 - dist_map.get(obs.id, 0.0)))
+
+        # Re-sort by distance rank (IN clause doesn't preserve vec0 ordering)
+        rank = {rid: i for i, rid in enumerate(rowids)}
+        observations.sort(key=lambda o: rank.get(o.id, len(rank)))
 
         near = _has_near_filter(query)
         if near is not None:

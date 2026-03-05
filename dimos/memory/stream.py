@@ -157,7 +157,7 @@ class Stream(Generic[T]):
     # ── Tag filter ────────────────────────────────────────────────────
 
     def filter_tags(self, **tags: Any) -> Stream[T]:
-        return self._with_filter(TagsFilter(tags))
+        return self._with_filter(TagsFilter(tuple(tags.items())))
 
     # ── Ordering / pagination ─────────────────────────────────────────
 

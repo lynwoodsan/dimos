@@ -35,7 +35,7 @@ def similarity_heatmap(
     *,
     resolution: float = 0.1,
     padding: float = 1.0,
-    spread: float = 2.0,
+    spread: float = 0.2,
     frame_id: str = "world",
 ) -> OccupancyGrid:
     """Build an OccupancyGrid heatmap from observations with similarity scores.
@@ -107,14 +107,14 @@ def similarity_heatmap(
         has_obs[gy, gx] = True
 
     # Distance transform: distance (in cells) from each empty cell to nearest dot
-    dist_cells = distance_transform_edt(~has_obs)
+    dist_cells: np.ndarray[Any, Any] = distance_transform_edt(~has_obs)  # type: ignore[assignment]
     dist_metres = dist_cells * resolution
 
     # Fade factor: 1.0 at the dot, 0.0 at `spread` metres away
     fade = np.clip(1.0 - dist_metres / spread, 0.0, 1.0)
 
     # For each cell, find the value of its nearest dot (via index output)
-    _, nearest_idx = distance_transform_edt(~has_obs, return_indices=True)
+    _, nearest_idx = distance_transform_edt(~has_obs, return_indices=True)  # type: ignore[misc]
     nearest_value = value_grid[nearest_idx[0], nearest_idx[1]]
 
     # Final heatmap = nearest dot's value * distance fade
