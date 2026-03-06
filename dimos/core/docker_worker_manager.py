@@ -13,8 +13,10 @@
 # limitations under the License.
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any
+
+from dimos.utils.safe_thread_map import safe_thread_map
 
 if TYPE_CHECKING:
     from dimos.core.docker_runner import DockerModule
@@ -28,32 +30,21 @@ class DockerWorkerManager:
     def deploy_parallel(
         specs: list[tuple[type[Module], tuple[Any, ...], dict[str, Any]]],
     ) -> list[DockerModule]:
-        """Deploy multiple DockerModules in parallel, collecting partial results on failure.
+        """Deploy multiple DockerModules in parallel.
 
-        Returns all successfully-created DockerModules. If any deployment fails,
-        the successful ones are still returned (so the caller can register them
-        for cleanup), and the first exception is re-raised.
+        If any deployment fails, all successfully-started containers are
+        stopped before an ExceptionGroup is raised.
         """
         from dimos.core.docker_runner import DockerModule
 
-        results: dict[int, DockerModule] = {}
-        first_exc: Exception | None = None
+        def _on_errors(
+            _outcomes: list, successes: list[DockerModule], errors: list[Exception]
+        ) -> None:
+            for mod in successes:
+                with suppress(Exception):
+                    mod.stop()
+            raise ExceptionGroup("docker deploy_parallel failed", errors)
 
-        with ThreadPoolExecutor(max_workers=len(specs)) as executor:
-            futures: dict[Future[DockerModule], int] = {
-                executor.submit(lambda s=spec: DockerModule(s[0], *s[1], **s[2])): i
-                for i, spec in enumerate(specs)
-            }
-            for fut in as_completed(futures):
-                idx = futures[fut]
-                try:
-                    results[idx] = fut.result()
-                except Exception as e:
-                    if first_exc is None:
-                        first_exc = e
-
-        # Return in input order (missing indices = failed deployments)
-        ordered = [results[i] for i in sorted(results)]
-        if first_exc is not None:
-            raise first_exc
-        return ordered
+        return safe_thread_map(
+            specs, lambda spec: DockerModule(spec[0], *spec[1], **spec[2]), _on_errors
+        )

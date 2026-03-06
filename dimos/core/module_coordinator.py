@@ -113,12 +113,9 @@ class ModuleCoordinator(Resource):  # type: ignore[misc]
                 worker_indices.append(i)
                 worker_specs.append(spec)
 
-        worker_results: list[Any] = []
-        docker_results: list[Any] = []
         try:
-            worker_results = self._client.deploy_parallel(worker_specs) if worker_specs else []
-            if docker_specs:
-                docker_results = DockerWorkerManager.deploy_parallel(docker_specs)
+            worker_results = self._client.deploy_parallel(worker_specs)
+            docker_results = DockerWorkerManager.deploy_parallel(docker_specs)
         finally:
             # Reassemble results in original input order
             results: list[Any] = [None] * len(module_specs)
@@ -127,9 +124,9 @@ class ModuleCoordinator(Resource):  # type: ignore[misc]
             for idx, mod in zip(docker_indices, docker_results, strict=False):
                 results[idx] = mod
             # Register whatever succeeded so stop() can clean them up
-            for spec, module in zip(module_specs, results, strict=False):
+            for (module_class, _, _), module in zip(module_specs, results, strict=False):
                 if module is not None:
-                    self._deployed_modules[spec[0]] = module
+                    self._deployed_modules[module_class] = module
 
         return results
 
