@@ -108,12 +108,17 @@ class ROSNavConfig(DockerModuleConfig):
 
     # --- Docker settings ---
     docker_startup_timeout = 180
-    docker_image: str = "dimos_autonomy_stack:humble"
+    docker_image: str = "dimos_rosnav:humble"
     docker_shm_size: str = "8g"
     docker_entrypoint: str = "/usr/local/bin/entrypoint.sh"
     docker_file: Path = Path(__file__).parent / "Dockerfile"
     docker_build_context: Path = Path(__file__).parent.parent.parent.parent
     docker_build_ssh: bool = True
+    docker_build_args: dict[str, str] = field(
+        default_factory=lambda: {
+            "TARGETARCH": "arm64" if __import__("platform").machine() == "aarch64" else "amd64"
+        }
+    )
     docker_gpus: str | None = None
     docker_extra_args: list[str] = field(default_factory=lambda: ["--cap-add=NET_ADMIN"])
     docker_env: dict[str, str] = field(
@@ -830,3 +835,6 @@ def _tfmessage_from_ros(msg: "ROSTFMessage") -> TFMessage:
 
 
 __all__ = ["ROSNav", "ros_nav"]
+
+if __name__ == "__main__":
+    ROSNav.blueprint().build()

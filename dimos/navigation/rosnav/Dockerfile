@@ -403,3 +403,7 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # Default command
 CMD ["bash"]
+
+# DIMOS-MODULE-CONVERSION-427593ae-c6e8-4cf1-9b2d-ee81a420a5dc
+# (sentinel prevents docker_build.py from appending redundant DimOS footer;
+#  dimos is already installed above via pip install -e)
