@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from dimos.models.vl.base import Captioner
 
     from .stream import Stream
-    from .types import Observation
+    from .type import Observation
 
 T = TypeVar("T")
 R = TypeVar("R")

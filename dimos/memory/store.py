@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from .stream import EmbeddingStream, Stream, TextStream
     from .transformer import Transformer
-    from .types import PoseProvider, StreamInfo
+    from .type import PoseProvider, StreamInfo
 
 T = TypeVar("T")
 

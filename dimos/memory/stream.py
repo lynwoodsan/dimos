@@ -33,7 +33,7 @@ from rich.text import Text
 
 from dimos.types.timestamped import Timestamped
 
-from .types import (
+from .type import (
     AfterFilter,
     AtFilter,
     BeforeFilter,

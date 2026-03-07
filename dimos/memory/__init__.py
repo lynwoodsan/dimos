@@ -8,7 +8,7 @@ from dimos.memory.transformer import (
     TextEmbeddingTransformer,
     Transformer,
 )
-from dimos.memory.types import (
+from dimos.memory.type import (
     EmbeddingObservation,
     Observation,
     StreamInfo,

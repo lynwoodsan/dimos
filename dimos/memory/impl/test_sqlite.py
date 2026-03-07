@@ -21,7 +21,7 @@ import pytest
 
 from dimos.memory.impl.sqlite import SqliteSession, SqliteStore
 from dimos.memory.transformer import EmbeddingTransformer
-from dimos.memory.types import EmbeddingObservation, Observation, _Unset
+from dimos.memory.type import EmbeddingObservation, Observation, _Unset
 from dimos.models.embedding.base import Embedding, EmbeddingModel
 from dimos.msgs.sensor_msgs.Image import Image
 from dimos.utils.testing import TimedSensorReplay
@@ -919,7 +919,7 @@ class TestObservationSet:
 
 class TestMatchesFilters:
     def test_after_filter(self) -> None:
-        from dimos.memory.types import AfterFilter
+        from dimos.memory.type import AfterFilter
 
         f = AfterFilter(5.0)
         assert f.matches(Observation(id=1, ts=6.0)) is True
@@ -928,7 +928,7 @@ class TestMatchesFilters:
         assert f.matches(Observation(id=4, ts=None)) is False
 
     def test_before_filter(self) -> None:
-        from dimos.memory.types import BeforeFilter
+        from dimos.memory.type import BeforeFilter
 
         f = BeforeFilter(5.0)
         assert f.matches(Observation(id=1, ts=4.0)) is True
@@ -936,7 +936,7 @@ class TestMatchesFilters:
         assert f.matches(Observation(id=3, ts=6.0)) is False
 
     def test_time_range_filter(self) -> None:
-        from dimos.memory.types import TimeRangeFilter
+        from dimos.memory.type import TimeRangeFilter
 
         f = TimeRangeFilter(2.0, 8.0)
         assert f.matches(Observation(id=1, ts=5.0)) is True
@@ -946,7 +946,7 @@ class TestMatchesFilters:
         assert f.matches(Observation(id=5, ts=9.0)) is False
 
     def test_at_filter(self) -> None:
-        from dimos.memory.types import AtFilter
+        from dimos.memory.type import AtFilter
 
         f = AtFilter(5.0, tolerance=1.0)
         assert f.matches(Observation(id=1, ts=5.0)) is True
@@ -955,7 +955,7 @@ class TestMatchesFilters:
         assert f.matches(Observation(id=4, ts=6.5)) is False
 
     def test_tags_filter(self) -> None:
-        from dimos.memory.types import TagsFilter
+        from dimos.memory.type import TagsFilter
 
         f = TagsFilter((("cam", "front"),))
         assert f.matches(Observation(id=1, tags={"cam": "front", "quality": "high"})) is True
@@ -963,20 +963,20 @@ class TestMatchesFilters:
         assert f.matches(Observation(id=3, tags={})) is False
 
     def test_text_search_filter(self) -> None:
-        from dimos.memory.types import TextSearchFilter
+        from dimos.memory.type import TextSearchFilter
 
         f = TextSearchFilter("motor", k=None)
         assert f.matches(Observation(id=1, _data="Motor fault on joint 3")) is True
         assert f.matches(Observation(id=2, _data="Battery low")) is False
 
     def test_embedding_search_filter_always_true(self) -> None:
-        from dimos.memory.types import EmbeddingSearchFilter
+        from dimos.memory.type import EmbeddingSearchFilter
 
         f = EmbeddingSearchFilter([1.0, 0.0], k=5)
         assert f.matches(Observation(id=1)) is True
 
     def test_lineage_filter_raises(self) -> None:
-        from dimos.memory.types import LineageFilter, StreamQuery
+        from dimos.memory.type import LineageFilter, StreamQuery
 
         f = LineageFilter("src", StreamQuery(), ())
         with pytest.raises(NotImplementedError):

@@ -21,7 +21,7 @@ import pytest
 from dimos.memory.impl.sqlite import SqliteStore
 from dimos.memory.stream import Stream
 from dimos.memory.transformer import PerItemTransformer
-from dimos.memory.types import (
+from dimos.memory.type import (
     AfterFilter,
     AtFilter,
     BeforeFilter,

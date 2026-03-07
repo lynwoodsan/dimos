@@ -22,13 +22,13 @@ Python, Shell (sh), Node.js, plus visualization: Matplotlib, Graphviz, Pikchr, A
 
 Add flags after the language identifier:
 
-| Flag | Effect |
-|------|--------|
-| `session=NAME` | Share state between blocks with same session name |
-| `output=path.png` | Write output to file instead of inline |
-| `no-result` | Execute but don't insert result |
-| `skip` | Don't execute this block |
-| `expected-error` | Block is expected to fail |
+| Flag              | Effect                                            |
+|-------------------|---------------------------------------------------|
+| `session=NAME`    | Share state between blocks with same session name |
+| `output=path.png` | Write output to file instead of inline            |
+| `no-result`       | Execute but don't insert result                   |
+| `skip`            | Don't execute this block                          |
+| `expected-error`  | Block is expected to fail                         |
 
 ## Examples
 

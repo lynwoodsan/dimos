@@ -112,7 +112,7 @@ class TestEmbeddingSearch:
 
     @pytest.mark.parametrize("query", QUERIES)
     def test_search_returns_results(self, embeddings: EmbeddingStream[Any], query: str) -> None:
-        from dimos.memory.types import EmbeddingObservation
+        from dimos.memory.type import EmbeddingObservation
 
         results = embeddings.search_embedding(query, k=5).fetch()
         assert len(results) > 0
@@ -133,7 +133,7 @@ class TestEmbeddingSearch:
             print(f"  [{rank + 1}] id={img.id} ts={img.ts:.2f}")
 
     def test_search_has_similarity(self, embeddings: EmbeddingStream[Any]) -> None:
-        from dimos.memory.types import EmbeddingObservation
+        from dimos.memory.type import EmbeddingObservation
 
         results = embeddings.search_embedding("a hallway", k=10).fetch()
         assert len(results) > 0

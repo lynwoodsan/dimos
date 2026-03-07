@@ -52,7 +52,7 @@ from dimos.memory.transformer import (
     TextEmbeddingTransformer,
     Transformer,
 )
-from dimos.memory.types import (
+from dimos.memory.type import (
     AfterFilter,
     AtFilter,
     BeforeFilter,
@@ -72,7 +72,7 @@ from dimos.memory.types import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from dimos.memory.types import PoseProvider
+    from dimos.memory.type import PoseProvider
     from dimos.models.embedding.base import EmbeddingModel
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
