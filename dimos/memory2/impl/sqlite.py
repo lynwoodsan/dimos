@@ -73,8 +73,8 @@ class SqliteSession(Session):
     def _create_backend(self, name: str, payload_type: type[Any] | None = None) -> Backend[Any]:
         return SqliteBackend(self._conn, name)
 
-    def close(self) -> None:
-        super().close()
+    def stop(self) -> None:
+        super().stop()
         self._conn.close()
 
 

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 from abc import abstractmethod
 
 from reactivex.abc import DisposableBase
@@ -44,4 +46,11 @@ class Resource(DisposableBase):
         disposables.dispose()
 
         """
+        self.stop()
+
+    def __enter__(self) -> Resource:
+        self.start()
+        return self
+
+    def __exit__(self, *args: object) -> None:
         self.stop()

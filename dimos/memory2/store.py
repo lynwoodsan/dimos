@@ -14,9 +14,10 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
+from dimos.core.resource import Resource
 from dimos.memory2.stream import Stream
 
 if TYPE_CHECKING:
@@ -69,7 +70,7 @@ class StreamNamespace:
         return f"StreamNamespace({list(self._session._streams.keys())})"
 
 
-class Session(ABC):
+class Session(Resource):
     """A session against a store. Manages named streams over a shared connection.
 
     Subclasses implement ``_create_backend`` to provide storage-specific backends.
@@ -104,27 +105,21 @@ class Session(ABC):
     def streams(self) -> StreamNamespace:
         return StreamNamespace(self)
 
-    def close(self) -> None:  # noqa: B027
-        """Release resources. Override in subclasses for cleanup."""
+    def start(self) -> None:
+        pass
 
-    def __enter__(self) -> Session:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        self.close()
+    def stop(self) -> None:
+        pass
 
 
-class Store(ABC):
+class Store(Resource):
     """Top-level entry point — wraps a storage location (file, URL, etc.)."""
 
     @abstractmethod
     def session(self) -> Session: ...
 
-    def close(self) -> None:  # noqa: B027
-        """Release resources. Override in subclasses for cleanup."""
+    def start(self) -> None:
+        pass
 
-    def __enter__(self) -> Store:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        self.close()
+    def stop(self) -> None:
+        pass
