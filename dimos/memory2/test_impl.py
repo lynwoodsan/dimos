@@ -263,3 +263,262 @@ class TestStoreBasic:
             results = s.search_text("motor").fetch()
             assert len(results) == 1
             assert results[0].data == "motor fault"
+
+
+# ── Lazy / eager blob loading tests ──────────────────────────────
+
+
+class TestBlobLoading:
+    """Verify lazy and eager blob loading paths."""
+
+    def test_sqlite_lazy_by_default(self) -> None:
+        """Default sqlite iteration uses lazy loaders — data is _UNLOADED until accessed."""
+        import tempfile
+
+        from dimos.memory2.impl.sqlite import SqliteStore
+        from dimos.memory2.type import _Unloaded
+
+        with tempfile.NamedTemporaryFile(suffix=".db") as f:
+            store = SqliteStore(path=f.name)
+            with store.session() as session:
+                s = session.stream("lazy_test", str)
+                s.append("hello", ts=1.0)
+                s.append("world", ts=2.0)
+
+                for obs in s:
+                    # Before accessing .data, _data should be the unloaded sentinel
+                    assert isinstance(obs._data, _Unloaded)
+                    assert obs._loader is not None
+                    # Accessing .data triggers the loader
+                    val = obs.data
+                    assert isinstance(val, str)
+                    # After loading, _loader is cleared
+                    assert obs._loader is None
+
+    def test_sqlite_eager_loads_inline(self) -> None:
+        """With eager_blobs=True, data is loaded via JOIN — no lazy loader."""
+        import tempfile
+
+        from dimos.memory2.impl.sqlite import SqliteStore
+        from dimos.memory2.type import _Unloaded
+
+        with tempfile.NamedTemporaryFile(suffix=".db") as f:
+            store = SqliteStore(path=f.name)
+            with store.session() as session:
+                s = session.stream("eager_test", str, eager_blobs=True)
+                s.append("hello", ts=1.0)
+                s.append("world", ts=2.0)
+
+                for obs in s:
+                    # Data should already be loaded — no lazy sentinel
+                    assert not isinstance(obs._data, _Unloaded)
+                    assert obs._loader is None
+                    assert isinstance(obs.data, str)
+
+    def test_sqlite_lazy_and_eager_same_values(self) -> None:
+        """Both paths must return identical data."""
+        import tempfile
+
+        from dimos.memory2.impl.sqlite import SqliteStore
+
+        with tempfile.NamedTemporaryFile(suffix=".db") as f:
+            store = SqliteStore(path=f.name)
+            with store.session() as session:
+                lazy_s = session.stream("vals", str)
+                lazy_s.append("alpha", ts=1.0, tags={"k": "v"})
+                lazy_s.append("beta", ts=2.0, tags={"k": "w"})
+
+                # Lazy read
+                lazy_results = lazy_s.fetch()
+
+                # Eager read — new stream handle with eager_blobs on same backend
+                eager_s = session.stream("vals", str, eager_blobs=True)
+                eager_results = eager_s.fetch()
+
+                assert [o.data for o in lazy_results] == [o.data for o in eager_results]
+                assert [o.tags for o in lazy_results] == [o.tags for o in eager_results]
+                assert [o.ts for o in lazy_results] == [o.ts for o in eager_results]
+
+    def test_memory_lazy_with_blobstore(self) -> None:
+        """MemoryStore with a BlobStore uses lazy loaders."""
+        from dimos.memory2.blobstore.file import FileBlobStore
+        from dimos.memory2.impl.memory import MemoryStore
+        from dimos.memory2.type import _Unloaded
+
+        store = MemoryStore()
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bs = FileBlobStore(root=tmpdir)
+            bs.start()
+            with store.session(blob_store=bs) as session:
+                s = session.stream("mem_lazy", str)
+                s.append("data1", ts=1.0)
+
+                obs = s.first()
+                # ListBackend replaces _data with _UNLOADED when blob_store is set
+                assert isinstance(obs._data, _Unloaded)
+                assert obs.data == "data1"
+            bs.stop()
+
+
+# ── Spy stores ───────────────────────────────────────────────────
+
+
+class SpyBlobStore:
+    """BlobStore that records all calls for verification."""
+
+    def __init__(self) -> None:
+        self.puts: list[tuple[str, int, bytes]] = []
+        self.gets: list[tuple[str, int]] = []
+        self.store: dict[tuple[str, int], bytes] = {}
+
+    def start(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def put(self, stream: str, key: int, data: bytes) -> None:
+        self.puts.append((stream, key, data))
+        self.store[(stream, key)] = data
+
+    def get(self, stream: str, key: int) -> bytes:
+        self.gets.append((stream, key))
+        return self.store[(stream, key)]
+
+    def delete(self, stream: str, key: int) -> None:
+        self.store.pop((stream, key), None)
+
+
+class SpyVectorStore:
+    """VectorStore that records all calls for verification."""
+
+    def __init__(self) -> None:
+        self.puts: list[tuple[str, int]] = []
+        self.searches: list[tuple[str, int]] = []
+        self.vectors: dict[str, dict[int, Any]] = {}
+
+    def start(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def put(self, stream: str, key: int, embedding: Any) -> None:
+        self.puts.append((stream, key))
+        self.vectors.setdefault(stream, {})[key] = embedding
+
+    def search(self, stream: str, query: Any, k: int) -> list[tuple[int, float]]:
+        self.searches.append((stream, k))
+        vectors = self.vectors.get(stream, {})
+        if not vectors:
+            return []
+        scored = [(key, float(emb @ query)) for key, emb in vectors.items()]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:k]
+
+    def delete(self, stream: str, key: int) -> None:
+        self.vectors.get(stream, {}).pop(key, None)
+
+
+# ── Spy grid: session factories that inject spy stores ───────────
+
+
+@dataclass
+class SpyCase:
+    name: str
+    session_factory: Callable[
+        [], Generator[tuple[Session, SpyBlobStore, SpyVectorStore], None, None]
+    ]
+
+
+@contextmanager
+def memory_spy_session() -> Generator[tuple[Session, SpyBlobStore, SpyVectorStore], None, None]:
+    from dimos.memory2.impl.memory import MemoryStore
+
+    blob_spy = SpyBlobStore()
+    vec_spy = SpyVectorStore()
+    store = MemoryStore()
+    with store.session(blob_store=blob_spy, vector_store=vec_spy) as session:
+        yield session, blob_spy, vec_spy
+
+
+@contextmanager
+def sqlite_spy_session() -> Generator[tuple[Session, SpyBlobStore, SpyVectorStore], None, None]:
+    import tempfile
+
+    from dimos.memory2.impl.sqlite import SqliteStore
+
+    blob_spy = SpyBlobStore()
+    vec_spy = SpyVectorStore()
+    with tempfile.NamedTemporaryFile(suffix=".db") as f:
+        store = SqliteStore(path=f.name)
+        with store.session(blob_store=blob_spy, vector_store=vec_spy) as session:
+            yield session, blob_spy, vec_spy
+
+
+spy_cases = [
+    SpyCase(name="memory", session_factory=memory_spy_session),
+    SpyCase(name="sqlite", session_factory=sqlite_spy_session),
+]
+
+
+@pytest.mark.parametrize("case", spy_cases, ids=lambda c: c.name)
+class TestStoreDelegation:
+    """Verify all backends delegate to pluggable BlobStore and VectorStore."""
+
+    def test_append_calls_blob_put(self, case: SpyCase) -> None:
+        with case.session_factory() as (session, blob_spy, _vec_spy):
+            s = session.stream("blobs", str)
+            s.append("first", ts=1.0)
+            s.append("second", ts=2.0)
+
+            assert len(blob_spy.puts) == 2
+            assert all(stream == "blobs" for stream, _k, _d in blob_spy.puts)
+
+    def test_iterate_calls_blob_get(self, case: SpyCase) -> None:
+        with case.session_factory() as (session, blob_spy, _vec_spy):
+            s = session.stream("blobs", str)
+            s.append("a", ts=1.0)
+            s.append("b", ts=2.0)
+
+            blob_spy.gets.clear()
+            for obs in s:
+                _ = obs.data
+            assert len(blob_spy.gets) == 2
+
+    def test_append_embedding_calls_vector_put(self, case: SpyCase) -> None:
+        import numpy as np
+
+        from dimos.models.embedding.base import Embedding
+
+        def _emb(v: list[float]) -> Embedding:
+            a = np.array(v, dtype=np.float32)
+            return Embedding(vector=a / (np.linalg.norm(a) + 1e-10))
+
+        with case.session_factory() as (session, _blob_spy, vec_spy):
+            s = session.stream("vecs", str)
+            s.append("a", ts=1.0, embedding=_emb([1, 0, 0]))
+            s.append("b", ts=2.0, embedding=_emb([0, 1, 0]))
+            s.append("c", ts=3.0)  # no embedding
+
+            assert len(vec_spy.puts) == 2
+
+    def test_search_calls_vector_search(self, case: SpyCase) -> None:
+        import numpy as np
+
+        from dimos.models.embedding.base import Embedding
+
+        def _emb(v: list[float]) -> Embedding:
+            a = np.array(v, dtype=np.float32)
+            return Embedding(vector=a / (np.linalg.norm(a) + 1e-10))
+
+        with case.session_factory() as (session, _blob_spy, vec_spy):
+            s = session.stream("vecs", str)
+            s.append("north", ts=1.0, embedding=_emb([0, 1, 0]))
+            s.append("east", ts=2.0, embedding=_emb([1, 0, 0]))
+
+            results = s.search(_emb([0, 1, 0]), k=2).fetch()
+            assert len(vec_spy.searches) == 1
+            assert results[0].data == "north"
