@@ -141,7 +141,8 @@ docs/
 Autonomous subsystems. Communicate via `In[T]`/`Out[T]` typed streams. Run in forkserver worker processes.
 
 ```python
-from dimos.core.module import Module, In, Out
+from dimos.core.module import Module
+from dimos.core.stream import In, Out
 from dimos.core.core import rpc
 from dimos.msgs.sensor_msgs import Image
 
