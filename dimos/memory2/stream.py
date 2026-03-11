@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from itertools import islice
+import time
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from dimos.memory2.backend import Backend, LiveBackend
@@ -31,11 +32,12 @@ from dimos.memory2.filter import (
     TimeRangeFilter,
 )
 from dimos.memory2.transform import FnTransformer, Transformer
+from dimos.memory2.type import EmbeddedObservation, Observation
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from dimos.memory2.type import Observation
+    from dimos.models.embedding.base import Embedding
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -60,6 +62,14 @@ class Stream(Generic[T]):
         self._xf = xf
         self._query = query
 
+    def is_live(self) -> bool:
+        """True if this stream (or any ancestor in the chain) is in live mode."""
+        if self._query.live_buffer is not None:
+            return True
+        if isinstance(self._source, Stream):
+            return self._source.is_live()
+        return False
+
     # ── Iteration ───────────────────────────────────────────────────
 
     def __iter__(self) -> Iterator[Observation[T]]:
@@ -81,8 +91,36 @@ class Stream(Generic[T]):
         if filters:
             it = (obs for obs in it if all(f.matches(obs) for f in filters))
 
-        # Sort if needed (materializes — only for finite streams)
+        # Text search — substring match
+        if self._query.search_text is not None:
+            needle = self._query.search_text.lower()
+            it = (obs for obs in it if needle in str(obs.data).lower())
+
+        # Vector search — brute-force cosine (materializes — rejects live)
+        if self._query.search_vec is not None:
+            if self.is_live():
+                raise TypeError(
+                    ".search() requires finite data — cannot rank an infinite live stream."
+                )
+            query_emb = self._query.search_vec
+            scored = []
+            for obs in it:
+                emb = getattr(obs, "embedding", None)
+                if emb is not None:
+                    sim = float(emb @ query_emb)
+                    scored.append(obs.derive(data=obs.data, similarity=sim))
+            scored.sort(key=lambda o: getattr(o, "similarity", 0.0) or 0.0, reverse=True)
+            k = self._query.search_k
+            if k is not None:
+                scored = scored[:k]
+            it = iter(scored)
+
+        # Sort if needed (materializes — rejects live)
         if self._query.order_field:
+            if self.is_live():
+                raise TypeError(
+                    ".order_by() requires finite data — cannot sort an infinite live stream."
+                )
             key = self._query.order_field
             desc = self._query.order_desc
             items = sorted(
@@ -111,6 +149,9 @@ class Stream(Generic[T]):
             limit_val=overrides.get("limit_val", q.limit_val),
             offset_val=overrides.get("offset_val", q.offset_val),
             live_buffer=overrides.get("live_buffer", q.live_buffer),
+            search_vec=overrides.get("search_vec", q.search_vec),
+            search_k=overrides.get("search_k", q.search_k),
+            search_text=overrides.get("search_text", q.search_text),
         )
         return Stream(self._source, xf=self._xf, query=new_q)
 
@@ -143,6 +184,22 @@ class Stream(Generic[T]):
 
     def offset(self, n: int) -> Stream[T]:
         return self._replace_query(offset_val=n)
+
+    def search(self, query: Embedding, k: int) -> Stream[T]:
+        """Return top-k observations by cosine similarity to *query*.
+
+        The backend handles the actual computation. ListBackend does
+        brute-force cosine; SqliteBackend (future) pushes down to vec0.
+        """
+        return self._replace_query(search_vec=query, search_k=k)
+
+    def search_text(self, text: str) -> Stream[T]:
+        """Filter observations whose data contains *text*.
+
+        ListBackend does case-insensitive substring match;
+        SqliteBackend (future) pushes down to FTS5.
+        """
+        return self._replace_query(search_text=text)
 
     # ── Functional API ──────────────────────────────────────────────
 
@@ -195,13 +252,18 @@ class Stream(Generic[T]):
             raise TypeError("Cannot save to a transform stream. Target must be backend-backed.")
         backend = target._source
         for obs in self:
-            backend.append(obs.data, ts=obs.ts, pose=obs.pose, tags=obs.tags)
+            backend.append(obs)
         return target
 
     # ── Terminals ───────────────────────────────────────────────────
 
     def fetch(self) -> list[Observation[T]]:
         """Materialize all observations into a list."""
+        if self.is_live() and self._query.limit_val is None:
+            raise TypeError(
+                ".fetch() on a live stream without .limit() would collect forever. "
+                "Use .limit(n).fetch(), .drain(), or .save(target) instead."
+            )
         return list(self)
 
     def first(self) -> Observation[T]:
@@ -220,11 +282,24 @@ class Stream(Generic[T]):
         """Count matching observations."""
         if isinstance(self._source, Backend):
             return self._source.count(self._query)
+        if self.is_live():
+            raise TypeError(".count() on a live transform stream would block forever.")
         return sum(1 for _ in self)
 
     def exists(self) -> bool:
         """Check if any matching observation exists."""
         return next(iter(self.limit(1)), None) is not None
+
+    def drain(self) -> int:
+        """Consume all observations, discarding results. Returns count consumed.
+
+        Use for side-effect pipelines (e.g. live embed-and-store) where you
+        don't need to collect results in memory.
+        """
+        n = 0
+        for _ in self:
+            n += 1
+        return n
 
     # ── Write ───────────────────────────────────────────────────────
 
@@ -235,8 +310,22 @@ class Stream(Generic[T]):
         ts: float | None = None,
         pose: Any | None = None,
         tags: dict[str, Any] | None = None,
+        embedding: Embedding | None = None,
     ) -> Observation[T]:
         """Append to the backing store. Only works if source is a Backend."""
         if isinstance(self._source, Stream):
             raise TypeError("Cannot append to a transform stream. Append to the source stream.")
-        return self._source.append(payload, ts=ts, pose=pose, tags=tags)
+        _ts = ts if ts is not None else time.time()
+        _tags = tags or {}
+        if embedding is not None:
+            obs: Observation[T] = EmbeddedObservation(
+                id=-1,
+                ts=_ts,
+                pose=pose,
+                tags=_tags,
+                _data=payload,
+                embedding=embedding,
+            )
+        else:
+            obs = Observation(id=-1, ts=_ts, pose=pose, tags=_tags, _data=payload)
+        return self._source.append(obs)

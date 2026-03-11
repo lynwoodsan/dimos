@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from dimos.memory2.buffer import BackpressureBuffer
     from dimos.memory2.type import Observation
+    from dimos.models.embedding.base import Embedding
 
 
 # ── Filter protocol ─────────────────────────────────────────────────
@@ -131,3 +132,8 @@ class StreamQuery:
     limit_val: int | None = None
     offset_val: int | None = None
     live_buffer: BackpressureBuffer[Any] | None = None
+    # Vector search (embedding similarity)
+    search_vec: Embedding | None = field(default=None, hash=False, compare=False)
+    search_k: int | None = None
+    # Full-text search (substring / FTS5)
+    search_text: str | None = None

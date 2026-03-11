@@ -15,13 +15,11 @@
 from __future__ import annotations
 
 import threading
-import time
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from reactivex.disposable import Disposable
 
 from dimos.memory2.store import Session, Store
-from dimos.memory2.type import Observation
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -31,6 +29,7 @@ if TYPE_CHECKING:
     from dimos.memory2.backend import Backend
     from dimos.memory2.buffer import BackpressureBuffer
     from dimos.memory2.filter import StreamQuery
+    from dimos.memory2.type import Observation
 
 T = TypeVar("T")
 
@@ -49,22 +48,9 @@ class ListBackend(Generic[T]):
     def name(self) -> str:
         return self._name
 
-    def append(
-        self,
-        payload: T,
-        *,
-        ts: float | None = None,
-        pose: Any | None = None,
-        tags: dict[str, Any] | None = None,
-    ) -> Observation[T]:
+    def append(self, obs: Observation[T]) -> Observation[T]:
         with self._lock:
-            obs: Observation[T] = Observation(
-                id=self._next_id,
-                ts=ts if ts is not None else time.time(),
-                pose=pose,
-                tags=tags or {},
-                _data=payload,
-            )
+            obs.id = self._next_id
             self._next_id += 1
             self._observations.append(obs)
             subs = list(self._subscribers)
@@ -81,6 +67,8 @@ class ListBackend(Generic[T]):
         If query.live_buffer is set, subscribes before backfill, then
         switches to a live tail that blocks for new observations.
         """
+        if query.search_vec is not None and query.live_buffer is not None:
+            raise TypeError("Cannot combine .search() with .live() — search is a batch operation.")
         buf = query.live_buffer
         if buf is not None:
             # Subscribe BEFORE backfill to avoid missing items
@@ -95,6 +83,25 @@ class ListBackend(Generic[T]):
         # Apply filters
         for f in query.filters:
             snapshot = [obs for obs in snapshot if f.matches(obs)]
+
+        # Text search — substring match (SqliteBackend will use FTS5)
+        if query.search_text is not None:
+            needle = query.search_text.lower()
+            snapshot = [obs for obs in snapshot if needle in str(obs.data).lower()]
+
+        # Vector search — brute-force cosine via Embedding.__matmul__
+        if query.search_vec is not None:
+            query_emb = query.search_vec
+            scored: list[Observation[T]] = []
+            for obs in snapshot:
+                emb = getattr(obs, "embedding", None)
+                if emb is not None:
+                    sim = float(emb @ query_emb)
+                    scored.append(obs.derive(data=obs.data, similarity=sim))
+            scored.sort(key=lambda o: getattr(o, "similarity", 0.0) or 0.0, reverse=True)
+            if query.search_k is not None:
+                scored = scored[: query.search_k]
+            snapshot = scored
 
         # Ordering
         if query.order_field:

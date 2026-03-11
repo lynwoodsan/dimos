@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from dimos.models.embedding.base import Embedding
+
 T = TypeVar("T")
 
 
@@ -65,11 +67,48 @@ class Observation(Generic[T]):
         return val
 
     def derive(self, *, data: Any, **overrides: Any) -> Observation[Any]:
-        """Create a new observation preserving ts/pose/tags, replacing data."""
+        """Create a new observation preserving ts/pose/tags, replacing data.
+
+        If ``embedding`` is passed, promotes the result to
+        :class:`EmbeddedObservation`.
+        """
+        if "embedding" in overrides:
+            return EmbeddedObservation(
+                id=self.id,
+                ts=overrides.get("ts", self.ts),
+                pose=overrides.get("pose", self.pose),
+                tags=overrides.get("tags", self.tags),
+                _data=data,
+                embedding=overrides["embedding"],
+                similarity=overrides.get("similarity"),
+            )
         return Observation(
             id=self.id,
             ts=overrides.get("ts", self.ts),
             pose=overrides.get("pose", self.pose),
             tags=overrides.get("tags", self.tags),
             _data=data,
+        )
+
+
+# ── EmbeddedObservation ──────────────────────────────────────────
+
+
+@dataclass
+class EmbeddedObservation(Observation[T]):
+    """Observation enriched with a vector embedding and optional similarity score."""
+
+    embedding: Embedding | None = None
+    similarity: float | None = None
+
+    def derive(self, *, data: Any, **overrides: Any) -> EmbeddedObservation[Any]:
+        """Preserve embedding unless explicitly replaced."""
+        return EmbeddedObservation(
+            id=self.id,
+            ts=overrides.get("ts", self.ts),
+            pose=overrides.get("pose", self.pose),
+            tags=overrides.get("tags", self.tags),
+            _data=data,
+            embedding=overrides.get("embedding", self.embedding),
+            similarity=overrides.get("similarity", self.similarity),
         )

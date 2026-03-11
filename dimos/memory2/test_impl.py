@@ -234,3 +234,46 @@ class TestStoreBasic:
             s1 = session.stream("reuse", str)
             s2 = session.stream("reuse", str)
             assert s1 is s2
+
+    def test_append_with_embedding(self, case: Case) -> None:
+        import numpy as np
+
+        from dimos.memory2.type import EmbeddedObservation
+        from dimos.models.embedding.base import Embedding
+
+        with case.session_factory() as session:
+            s = session.stream("vectors", str)
+            emb = Embedding(vector=np.array([1.0, 0.0, 0.0], dtype=np.float32))
+            obs = s.append("hello", embedding=emb)
+            assert isinstance(obs, EmbeddedObservation)
+            assert obs.embedding is emb
+
+    def test_search_top_k(self, case: Case) -> None:
+        import numpy as np
+
+        from dimos.models.embedding.base import Embedding
+
+        def _emb(v: list[float]) -> Embedding:
+            a = np.array(v, dtype=np.float32)
+            return Embedding(vector=a / (np.linalg.norm(a) + 1e-10))
+
+        with case.session_factory() as session:
+            s = session.stream("searchable", str)
+            s.append("north", embedding=_emb([0, 1, 0]))
+            s.append("east", embedding=_emb([1, 0, 0]))
+            s.append("south", embedding=_emb([0, -1, 0]))
+
+            results = s.search(_emb([0, 1, 0]), k=2).fetch()
+            assert len(results) == 2
+            assert results[0].data == "north"
+            assert results[0].similarity > 0.99
+
+    def test_search_text(self, case: Case) -> None:
+        with case.session_factory() as session:
+            s = session.stream("logs", str)
+            s.append("motor fault")
+            s.append("temperature ok")
+
+            results = s.search_text("motor").fetch()
+            assert len(results) == 1
+            assert results[0].data == "motor fault"

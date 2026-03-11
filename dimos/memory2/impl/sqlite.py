@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from dimos.memory2.store import Session, Store
 
@@ -47,14 +47,7 @@ class SqliteBackend(Generic[T]):
     def iterate(self, query: StreamQuery) -> Iterator[Observation[T]]:
         raise NotImplementedError
 
-    def append(
-        self,
-        payload: T,
-        *,
-        ts: float | None = None,
-        pose: Any | None = None,
-        tags: dict[str, Any] | None = None,
-    ) -> Observation[T]:
+    def append(self, obs: Observation[T]) -> Observation[T]:
         raise NotImplementedError
 
     def count(self, query: StreamQuery) -> int:

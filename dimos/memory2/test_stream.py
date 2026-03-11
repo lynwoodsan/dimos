@@ -21,24 +21,29 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import TYPE_CHECKING
 
 import pytest
 
 from dimos.memory2.buffer import KeepLast, Unbounded
-from dimos.memory2.impl.memory import ListBackend, MemoryStore
-from dimos.memory2.stream import Stream
+from dimos.memory2.impl.memory import MemoryStore
 from dimos.memory2.transform import FnTransformer, QualityWindow, Transformer
 from dimos.memory2.type import Observation
+
+if TYPE_CHECKING:
+    from dimos.memory2.stream import Stream
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
 def make_stream(n: int = 5, start_ts: float = 0.0) -> Stream[int]:
-    """Create a ListBackend stream with n integer observations at 1-second intervals."""
-    backend = ListBackend[int]("test")
+    """Create a MemoryStore stream with n integer observations at 1-second intervals."""
+    store = MemoryStore()
+    session = store.session()
+    stream = session.stream("test")
     for i in range(n):
-        backend.append(i * 10, ts=start_ts + i)
-    return Stream(source=backend)
+        stream.append(i * 10, ts=start_ts + i)
+    return stream
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -119,20 +124,22 @@ class TestSpatialFilter:
     """.near(pose, radius) filters by Euclidean distance."""
 
     def test_near_with_tuples(self):
-        backend = ListBackend[str]("spatial")
-        backend.append("origin", ts=0.0, pose=(0, 0, 0))
-        backend.append("close", ts=1.0, pose=(1, 1, 0))
-        backend.append("far", ts=2.0, pose=(10, 10, 10))
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("spatial")
+        stream.append("origin", ts=0.0, pose=(0, 0, 0))
+        stream.append("close", ts=1.0, pose=(1, 1, 0))
+        stream.append("far", ts=2.0, pose=(10, 10, 10))
 
         result = stream.near((0, 0, 0), radius=2.0).fetch()
         assert [o.data for o in result] == ["origin", "close"]
 
     def test_near_excludes_no_pose(self):
-        backend = ListBackend[str]("spatial")
-        backend.append("no_pose", ts=0.0)
-        backend.append("has_pose", ts=1.0, pose=(0, 0, 0))
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("spatial")
+        stream.append("no_pose", ts=0.0)
+        stream.append("has_pose", ts=1.0, pose=(0, 0, 0))
 
         result = stream.near((0, 0, 0), radius=10.0).fetch()
         assert [o.data for o in result] == ["has_pose"]
@@ -147,20 +154,22 @@ class TestTagsFilter:
     """.filter_tags() matches on observation metadata."""
 
     def test_filter_by_tag(self):
-        backend = ListBackend[str]("tagged")
-        backend.append("cat", ts=0.0, tags={"type": "animal", "legs": 4})
-        backend.append("car", ts=1.0, tags={"type": "vehicle", "wheels": 4})
-        backend.append("dog", ts=2.0, tags={"type": "animal", "legs": 4})
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("tagged")
+        stream.append("cat", ts=0.0, tags={"type": "animal", "legs": 4})
+        stream.append("car", ts=1.0, tags={"type": "vehicle", "wheels": 4})
+        stream.append("dog", ts=2.0, tags={"type": "animal", "legs": 4})
 
         result = stream.filter_tags(type="animal").fetch()
         assert [o.data for o in result] == ["cat", "dog"]
 
     def test_filter_multiple_tags(self):
-        backend = ListBackend[str]("tagged")
-        backend.append("a", ts=0.0, tags={"x": 1, "y": 2})
-        backend.append("b", ts=1.0, tags={"x": 1, "y": 3})
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("tagged")
+        stream.append("a", ts=0.0, tags={"x": 1, "y": 2})
+        stream.append("b", ts=1.0, tags={"x": 1, "y": 3})
 
         result = stream.filter_tags(x=1, y=2).fetch()
         assert [o.data for o in result] == ["a"]
@@ -208,6 +217,11 @@ class TestOrderLimitOffset:
         assert make_stream(5).exists()
         assert not make_stream(0).exists()
         assert not make_stream(5).after(100.0).exists()
+
+    def test_drain(self):
+        assert make_stream(5).drain() == 5
+        assert make_stream(5).after(2.0).drain() == 2
+        assert make_stream(0).drain() == 0
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -269,11 +283,12 @@ class TestTransformChaining:
 
     def test_transform_filter_transform(self):
         """stream.transform(A).near(pose).transform(B) — filter between transforms."""
-        backend = ListBackend[int]("tfft")
-        backend.append(1, ts=0.0, pose=(0, 0, 0))
-        backend.append(2, ts=1.0, pose=(100, 100, 100))
-        backend.append(3, ts=2.0, pose=(1, 0, 0))
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("tfft")
+        stream.append(1, ts=0.0, pose=(0, 0, 0))
+        stream.append(2, ts=1.0, pose=(100, 100, 100))
+        stream.append(3, ts=2.0, pose=(1, 0, 0))
 
         add_ten = FnTransformer(lambda obs: obs.derive(data=obs.data + 10))
         double = FnTransformer(lambda obs: obs.derive(data=obs.data * 2))
@@ -288,17 +303,18 @@ class TestTransformChaining:
 
     def test_quality_window(self):
         """QualityWindow keeps the best item per time window."""
-        backend = ListBackend[float]("qw")
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("qw")
         # Window 1: ts 0.0-0.9 → best quality
-        backend.append(0.3, ts=0.0)
-        backend.append(0.9, ts=0.3)  # best in window
-        backend.append(0.1, ts=0.7)
+        stream.append(0.3, ts=0.0)
+        stream.append(0.9, ts=0.3)  # best in window
+        stream.append(0.1, ts=0.7)
         # Window 2: ts 1.0-1.9
-        backend.append(0.5, ts=1.0)
-        backend.append(0.8, ts=1.5)  # best in window
+        stream.append(0.5, ts=1.0)
+        stream.append(0.8, ts=1.5)  # best in window
         # Window 3: ts 2.0+ (emitted at end via flush)
-        backend.append(0.6, ts=2.2)
-        stream = Stream(source=backend)
+        stream.append(0.6, ts=2.2)
 
         xf = QualityWindow(quality_fn=lambda v: v, window=1.0)
         result = stream.transform(xf).fetch()
@@ -423,9 +439,10 @@ class TestLiveMode:
 
     def test_live_sees_backfill_then_new(self):
         """Backfill first, then live appends come through."""
-        backend = ListBackend[str]("live")
-        backend.append("old", ts=0.0)
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live")
+        stream.append("old", ts=0.0)
         live = stream.live(buffer=Unbounded())
 
         results: list[str] = []
@@ -442,8 +459,8 @@ class TestLiveMode:
         t.start()
 
         time.sleep(0.05)
-        backend.append("new1", ts=1.0)
-        backend.append("new2", ts=2.0)
+        stream.append("new1", ts=1.0)
+        stream.append("new2", ts=2.0)
 
         consumed.wait(timeout=2.0)
         t.join(timeout=2.0)
@@ -451,8 +468,9 @@ class TestLiveMode:
 
     def test_live_with_filter(self):
         """Filters apply to live data — non-matching obs are dropped silently."""
-        backend = ListBackend[int]("live_filter")
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live_filter")
         live = stream.after(5.0).live(buffer=Unbounded())
 
         results: list[int] = []
@@ -469,10 +487,10 @@ class TestLiveMode:
         t.start()
 
         time.sleep(0.05)
-        backend.append(1, ts=1.0)  # filtered out (ts <= 5.0)
-        backend.append(2, ts=6.0)  # passes
-        backend.append(3, ts=3.0)  # filtered out
-        backend.append(4, ts=10.0)  # passes
+        stream.append(1, ts=1.0)  # filtered out (ts <= 5.0)
+        stream.append(2, ts=6.0)  # passes
+        stream.append(3, ts=3.0)  # filtered out
+        stream.append(4, ts=10.0)  # passes
 
         consumed.wait(timeout=2.0)
         t.join(timeout=2.0)
@@ -480,9 +498,10 @@ class TestLiveMode:
 
     def test_live_deduplicates_backfill_overlap(self):
         """Observations seen in backfill are not re-yielded from the live buffer."""
-        backend = ListBackend[str]("dedup")
-        backend.append("backfill", ts=0.0)
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("dedup")
+        stream.append("backfill", ts=0.0)
         live = stream.live(buffer=Unbounded())
 
         results: list[str] = []
@@ -499,7 +518,7 @@ class TestLiveMode:
         t.start()
 
         time.sleep(0.05)
-        backend.append("live1", ts=1.0)
+        stream.append("live1", ts=1.0)
 
         consumed.wait(timeout=2.0)
         t.join(timeout=2.0)
@@ -507,8 +526,9 @@ class TestLiveMode:
 
     def test_live_with_keep_last_backpressure(self):
         """KeepLast drops intermediate values when consumer is slow."""
-        backend = ListBackend[int]("bp")
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("bp")
         live = stream.live(buffer=KeepLast())
 
         results: list[int] = []
@@ -528,7 +548,7 @@ class TestLiveMode:
         time.sleep(0.05)
         # Rapid producer — KeepLast will drop most of these
         for i in range(100):
-            backend.append(i, ts=float(i))
+            stream.append(i, ts=float(i))
             time.sleep(0.001)
 
         consumed.wait(timeout=5.0)
@@ -539,9 +559,10 @@ class TestLiveMode:
 
     def test_live_transform_receives_live_items(self):
         """Transforms downstream of .live() see both backfill and live items."""
-        backend = ListBackend[int]("live_xf")
-        backend.append(1, ts=0.0)
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live_xf")
+        stream.append(1, ts=0.0)
         double = FnTransformer(lambda obs: obs.derive(data=obs.data * 2))
         live = stream.live(buffer=Unbounded()).transform(double)
 
@@ -559,8 +580,8 @@ class TestLiveMode:
         t.start()
 
         time.sleep(0.05)
-        backend.append(10, ts=1.0)
-        backend.append(100, ts=2.0)
+        stream.append(10, ts=1.0)
+        stream.append(100, ts=2.0)
 
         consumed.wait(timeout=2.0)
         t.join(timeout=2.0)
@@ -574,11 +595,104 @@ class TestLiveMode:
         with pytest.raises(TypeError, match="Cannot call .live"):
             stream.transform(xf).live()
 
+    def test_is_live(self):
+        """is_live() walks the source chain to detect live mode."""
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("is_live")
+        assert not stream.is_live()
+
+        live = stream.live(buffer=Unbounded())
+        assert live.is_live()
+
+        xf = FnTransformer(lambda obs: obs)
+        transformed = live.transform(xf)
+        assert transformed.is_live()
+
+        # Two levels deep
+        double_xf = transformed.transform(xf)
+        assert double_xf.is_live()
+
+        # Non-live transform is not live
+        assert not stream.transform(xf).is_live()
+
+    def test_search_on_live_transform_raises(self):
+        """search() on a transform with live upstream raises immediately."""
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live_search")
+        xf = FnTransformer(lambda obs: obs)
+        live_xf = stream.live(buffer=Unbounded()).transform(xf)
+
+        import numpy as np
+
+        from dimos.models.embedding.base import Embedding
+
+        vec = Embedding(vector=np.array([1.0, 0.0, 0.0]))
+        with pytest.raises(TypeError, match="requires finite data"):
+            # Use list() to trigger iteration — fetch() would hit its own guard first
+            list(live_xf.search(vec, k=5))
+
+    def test_order_by_on_live_transform_raises(self):
+        """order_by() on a transform with live upstream raises immediately."""
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live_order")
+        xf = FnTransformer(lambda obs: obs)
+        live_xf = stream.live(buffer=Unbounded()).transform(xf)
+
+        with pytest.raises(TypeError, match="requires finite data"):
+            list(live_xf.order_by("ts", desc=True))
+
+    def test_fetch_on_live_without_limit_raises(self):
+        """fetch() on a live stream without limit() raises TypeError."""
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live_fetch")
+        live = stream.live(buffer=Unbounded())
+
+        with pytest.raises(TypeError, match="collect forever"):
+            live.fetch()
+
+    def test_fetch_on_live_transform_without_limit_raises(self):
+        """fetch() on a live transform without limit() raises TypeError."""
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live_fetch_xf")
+        xf = FnTransformer(lambda obs: obs)
+        live_xf = stream.live(buffer=Unbounded()).transform(xf)
+
+        with pytest.raises(TypeError, match="collect forever"):
+            live_xf.fetch()
+
+    def test_count_on_live_transform_raises(self):
+        """count() on a live transform stream raises TypeError."""
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live_count")
+        xf = FnTransformer(lambda obs: obs)
+        live_xf = stream.live(buffer=Unbounded()).transform(xf)
+
+        with pytest.raises(TypeError, match="block forever"):
+            live_xf.count()
+
+    def test_last_on_live_transform_raises(self):
+        """last() on a live transform raises TypeError (via order_by guard)."""
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live_last")
+        xf = FnTransformer(lambda obs: obs)
+        live_xf = stream.live(buffer=Unbounded()).transform(xf)
+
+        with pytest.raises(TypeError, match="requires finite data"):
+            live_xf.last()
+
     def test_live_chained_transforms(self):
         """stream.live().transform(A).transform(B) — both transforms applied to live items."""
-        backend = ListBackend[int]("live_chain")
-        backend.append(1, ts=0.0)
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live_chain")
+        stream.append(1, ts=0.0)
         add_one = FnTransformer(lambda obs: obs.derive(data=obs.data + 1))
         double = FnTransformer(lambda obs: obs.derive(data=obs.data * 2))
         live = stream.live(buffer=Unbounded()).transform(add_one).transform(double)
@@ -597,8 +711,8 @@ class TestLiveMode:
         t.start()
 
         time.sleep(0.05)
-        backend.append(10, ts=1.0)
-        backend.append(100, ts=2.0)
+        stream.append(10, ts=1.0)
+        stream.append(100, ts=2.0)
 
         consumed.wait(timeout=2.0)
         t.join(timeout=2.0)
@@ -607,10 +721,11 @@ class TestLiveMode:
 
     def test_live_filter_before_live(self):
         """Filters applied before .live() work on both backfill and live items."""
-        backend = ListBackend[str]("live_pre_filter")
-        backend.append("a", ts=1.0)
-        backend.append("b", ts=10.0)
-        stream = Stream(source=backend)
+        store = MemoryStore()
+        session = store.session()
+        stream = session.stream("live_pre_filter")
+        stream.append("a", ts=1.0)
+        stream.append("b", ts=10.0)
         live = stream.after(5.0).live(buffer=Unbounded())
 
         results: list[str] = []
@@ -627,8 +742,8 @@ class TestLiveMode:
         t.start()
 
         time.sleep(0.05)
-        backend.append("c", ts=3.0)  # filtered
-        backend.append("d", ts=20.0)  # passes
+        stream.append("c", ts=3.0)  # filtered
+        stream.append("d", ts=20.0)  # passes
 
         consumed.wait(timeout=2.0)
         t.join(timeout=2.0)

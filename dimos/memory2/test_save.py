@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 def make_stream(n: int = 5, start_ts: float = 0.0) -> Stream[int]:
     backend = ListBackend[int]("test")
     for i in range(n):
-        backend.append(i * 10, ts=start_ts + i)
+        backend.append(Observation(id=-1, ts=start_ts + i, _data=i * 10))
     return Stream(source=backend)
 
 
@@ -56,17 +56,8 @@ class ReadOnlyBackend:
     def iterate(self, query: StreamQuery) -> Iterator[Observation[int]]:
         yield from self._obs
 
-    def append(
-        self,
-        payload: int,
-        *,
-        ts: float | None = None,
-        pose: Any | None = None,
-        tags: dict[str, Any] | None = None,
-    ) -> Observation[int]:
-        obs: Observation[int] = Observation(
-            id=self._next_id, ts=ts or 0.0, pose=pose, tags=tags or {}, _data=payload
-        )
+    def append(self, obs: Observation[int]) -> Observation[int]:
+        obs.id = self._next_id
         self._next_id += 1
         self._obs.append(obs)
         return obs
@@ -139,7 +130,7 @@ class TestSave:
 
     def test_save_preserves_data(self) -> None:
         backend = ListBackend[int]("src")
-        backend.append(42, ts=1.0, pose=(1, 2, 3), tags={"label": "cat"})
+        backend.append(Observation(id=-1, ts=1.0, pose=(1, 2, 3), tags={"label": "cat"}, _data=42))
         source = Stream(source=backend)
 
         target_backend = ListBackend[int]("dst")

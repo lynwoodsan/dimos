@@ -1,4 +1,4 @@
-from dimos.memory2.backend import Backend, LiveBackend
+from dimos.memory2.backend import Backend, LiveBackend, VectorStore
 from dimos.memory2.buffer import (
     BackpressureBuffer,
     Bounded,
@@ -7,6 +7,7 @@ from dimos.memory2.buffer import (
     KeepLast,
     Unbounded,
 )
+from dimos.memory2.embed import EmbedImages, EmbedText
 from dimos.memory2.filter import (
     AfterFilter,
     AtFilter,
@@ -23,7 +24,7 @@ from dimos.memory2.impl.sqlite import SqliteBackend, SqliteSession, SqliteStore
 from dimos.memory2.store import Session, Store, StreamNamespace
 from dimos.memory2.stream import Stream
 from dimos.memory2.transform import FnTransformer, QualityWindow, Transformer
-from dimos.memory2.type import Observation
+from dimos.memory2.type import EmbeddedObservation, Observation
 
 __all__ = [
     "AfterFilter",
@@ -34,6 +35,9 @@ __all__ = [
     "Bounded",
     "ClosedError",
     "DropNew",
+    "EmbedImages",
+    "EmbedText",
+    "EmbeddedObservation",
     "Filter",
     "FnTransformer",
     "KeepLast",
@@ -57,4 +61,5 @@ __all__ = [
     "TimeRangeFilter",
     "Transformer",
     "Unbounded",
+    "VectorStore",
 ]

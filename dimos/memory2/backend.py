@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
 
 from dimos.core.resource import Resource
 
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from dimos.memory2.buffer import BackpressureBuffer
     from dimos.memory2.filter import StreamQuery
     from dimos.memory2.type import Observation
+    from dimos.models.embedding.base import Embedding
 
 T = TypeVar("T")
 
@@ -44,14 +45,13 @@ class Backend(Protocol[T]):
 
     def iterate(self, query: StreamQuery) -> Iterator[Observation[T]]: ...
 
-    def append(
-        self,
-        payload: T,
-        *,
-        ts: float | None = None,
-        pose: Any | None = None,
-        tags: dict[str, Any] | None = None,
-    ) -> Observation[T]: ...
+    def append(self, obs: Observation[T]) -> Observation[T]:
+        """Store an observation, assigning it a backend-managed id.
+
+        The caller builds the Observation (or EmbeddedObservation);
+        the backend assigns the canonical ``id`` and persists it.
+        """
+        ...
 
     def count(self, query: StreamQuery) -> int: ...
 
@@ -89,4 +89,34 @@ class BlobStore(Resource, ABC):
     @abstractmethod
     def delete(self, stream: str, key: int) -> None:
         """Delete a blob by stream name and observation id."""
+        ...
+
+
+# ── Vector storage ───────────────────────────────────────────────
+
+
+class VectorStore(Resource, ABC):
+    """Pluggable storage and ANN index for embedding vectors.
+
+    Separates vector indexing from metadata so backends can swap
+    search strategies (brute-force, vec0, FAISS, Qdrant) independently.
+
+    Same shape as BlobStore: ``put`` / ``search`` / ``delete``, keyed
+    by ``(stream, observation_id)``.  Index creation is lazy — the
+    first ``put`` for a stream determines dimensionality.
+    """
+
+    @abstractmethod
+    def put(self, stream: str, key: int, embedding: Embedding) -> None:
+        """Store an embedding vector for the given stream and observation id."""
+        ...
+
+    @abstractmethod
+    def search(self, stream: str, query: Embedding, k: int) -> list[tuple[int, float]]:
+        """Return top-k (observation_id, similarity) pairs, descending."""
+        ...
+
+    @abstractmethod
+    def delete(self, stream: str, key: int) -> None:
+        """Remove a vector. Silent if missing."""
         ...
