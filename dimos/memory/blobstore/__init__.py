@@ -11,3 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from dimos.memory.backend import BlobStore
+from dimos.memory.blobstore.file import FileBlobStore
+from dimos.memory.blobstore.sqlite import SqliteBlobStore
+
+__all__ = ["BlobStore", "FileBlobStore", "SqliteBlobStore"]

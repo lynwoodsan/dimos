@@ -12,90 +12,71 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SQLite-backed memory store implementation.
-
-Schema per stream ``{name}``:
-
-    {name}          — id, ts, pose columns (x/y/z + quaternion), tags, parent_id
-    {name}_payload  — id, data BLOB (loaded lazily)
-    {name}_rtree    — R*Tree spatial index on position
-    {name}_fts      — FTS5 full-text index (TextStream only)
-    {name}_vec      — vec0 vector index (EmbeddingStream only)
-
-Payloads use Codec (LCM for DimosMsg types, pickle otherwise).
-Poses are decomposed into columns. Tags are JSON.
-"""
-
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
+from itertools import islice
 import json
 import re
 import sqlite3
 import threading
-import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from reactivex.subject import Subject
-
-from dimos.memory.codec import (
-    Codec,
-    PickleCodec,
-    codec_for_type,
-    module_path_to_type,
-    type_to_module_path,
-)
-from dimos.memory.store import Session, Store
-from dimos.memory.stream import EmbeddingStream, Stream, TextStream
-from dimos.memory.transformer import (
-    CaptionTransformer,
-    EmbeddingTransformer,
-    TextEmbeddingTransformer,
-    Transformer,
-)
-from dimos.memory.type import (
+from dimos.memory.backend import BackendConfig
+from dimos.memory.blobstore.sqlite import SqliteBlobStore
+from dimos.memory.codecs.base import Codec, codec_for
+from dimos.memory.filter import (
     AfterFilter,
     AtFilter,
     BeforeFilter,
-    EmbeddingObservation,
-    EmbeddingSearchFilter,
-    Filter,
-    LineageFilter,
     NearFilter,
-    Observation,
-    StreamQuery,
     TagsFilter,
-    TextSearchFilter,
     TimeRangeFilter,
+    _xyz,
 )
+from dimos.memory.livechannel.subject import SubjectChannel
+from dimos.memory.store import Session, Store, StoreConfig
+from dimos.memory.type import _UNLOADED, Observation
+from dimos.protocol.service.spec import Configurable
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    import os
+    from collections.abc import Iterator
 
-    from dimos.memory.type import PoseProvider
-    from dimos.models.embedding.base import EmbeddingModel
+    from reactivex.abc import DisposableBase
 
-_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_ALLOWED_ORDER_FIELDS = frozenset({"id", "ts"})
+    from dimos.memory.backend import Backend, LiveChannel
+    from dimos.memory.buffer import BackpressureBuffer
+    from dimos.memory.filter import Filter, StreamQuery
 
+T = TypeVar("T")
 
-def _validate_identifier(name: str) -> str:
-    """Validate that *name* is a safe SQL identifier (alphanumeric + underscore)."""
-    if not _IDENTIFIER_RE.match(name):
-        raise ValueError(f"Invalid identifier: {name!r}")
-    return name
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-# ── Pose helpers (column-based) ──────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────
 
 
-def _decompose_pose(pose: Any) -> tuple[float, float, float, float, float, float, float] | None:
-    """Extract (x, y, z, qx, qy, qz, qw) from a PoseStamped."""
+def _validate_identifier(name: str) -> None:
+    if not _IDENT_RE.match(name):
+        raise ValueError(f"Invalid stream name: {name!r}")
+
+
+def _decompose_pose(pose: Any) -> tuple[float, ...] | None:
     if pose is None:
         return None
-    p = pose.position
-    q = pose.orientation
-    return (p.x, p.y, p.z, q.x, q.y, q.z, q.w)
+    if hasattr(pose, "position"):
+        pos = pose.position
+        orient = getattr(pose, "orientation", None)
+        x, y, z = float(pos.x), float(pos.y), float(getattr(pos, "z", 0.0))
+        if orient is not None:
+            return (x, y, z, float(orient.x), float(orient.y), float(orient.z), float(orient.w))
+        return (x, y, z, 0.0, 0.0, 0.0, 1.0)
+    if isinstance(pose, (list, tuple)):
+        vals = [float(v) for v in pose]
+        while len(vals) < 7:
+            vals.append(0.0 if len(vals) < 6 else 1.0)
+        return tuple(vals[:7])
+    return None
 
 
 def _reconstruct_pose(
@@ -106,927 +87,588 @@ def _reconstruct_pose(
     qy: float | None,
     qz: float | None,
     qw: float | None,
-) -> Any | None:
-    """Rebuild a PoseStamped from column values."""
+) -> tuple[float, ...] | None:
     if x is None:
         return None
-    from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
-
-    return PoseStamped(
-        position=[x, y if y is not None else 0.0, z if z is not None else 0.0],
-        orientation=[
-            qx if qx is not None else 0.0,
-            qy if qy is not None else 0.0,
-            qz if qz is not None else 0.0,
-            qw if qw is not None else 1.0,
-        ],
-    )
+    return (x, y or 0.0, z or 0.0, qx or 0.0, qy or 0.0, qz or 0.0, qw or 1.0)
 
 
-def _serialize_tags(tags: dict[str, Any] | None) -> str:
-    if not tags:
-        return "{}"
-    return json.dumps(tags, separators=(",", ":"))
+def _compile_filter(f: Filter, stream: str, prefix: str = "") -> tuple[str, list[Any]] | None:
+    """Compile a filter to SQL WHERE clause. Returns None for non-pushable filters.
 
-
-def _deserialize_tags(text: str) -> dict[str, Any]:
-    if not text:
-        return {}
-    return json.loads(text)  # type: ignore[no-any-return]
-
-
-# ── SQL building ──────────────────────────────────────────────────────
-
-# Columns selected from the meta table (no payload).
-_META_COLS = "id, ts, pose_x, pose_y, pose_z, pose_qx, pose_qy, pose_qz, pose_qw, tags, parent_id"
-
-
-def _compile_filter(f: Filter, table: str) -> tuple[str, list[Any]]:
-    """Compile a single filter to (SQL fragment, params)."""
-    if isinstance(f, AfterFilter):
-        return f"{table}.ts > ?", [f.t]
-    if isinstance(f, BeforeFilter):
-        return f"{table}.ts < ?", [f.t]
-    if isinstance(f, TimeRangeFilter):
-        return f"{table}.ts >= ? AND {table}.ts <= ?", [f.t1, f.t2]
-    if isinstance(f, AtFilter):
-        return f"ABS({table}.ts - ?) <= ?", [f.t, f.tolerance]
-    if isinstance(f, TagsFilter):
-        clauses: list[str] = []
-        params: list[Any] = []
-        for key, val in f.tags:
-            _validate_identifier(key)
-            clauses.append(f"json_extract({table}.tags, '$.{key}') = ?")
-            params.append(val)
-        return " AND ".join(clauses), params
-    if isinstance(f, NearFilter):
-        # Handled via R*Tree JOIN — see _compile_query
-        return "1=1", []
-    if isinstance(f, EmbeddingSearchFilter):
-        return "1=1", []
-    if isinstance(f, TextSearchFilter):
-        return "1=1", []
-    if isinstance(f, LineageFilter):
-        inner_sql, params = _compile_ids(f.source_query, f.source_table, select_col="parent_id")
-        for hop in f.hops:
-            inner_sql = f"SELECT parent_id FROM {hop} WHERE id IN ({inner_sql})"
-        return f"{table}.id IN ({inner_sql})", params
-    raise TypeError(f"Unknown filter type: {type(f)}")
-
-
-def _compile_ids(
-    query: StreamQuery, table: str, *, select_col: str = "id"
-) -> tuple[str, list[Any]]:
-    """Compile a StreamQuery to ``SELECT {col} FROM {table} WHERE ...``.
-
-    Unlike ``_compile_query``, this handles *all* filter types as SQL — including
-    EmbeddingSearchFilter and TextSearchFilter as inline subqueries — so that the
-    result can be nested inside another query (used by LineageFilter).
+    ``stream`` is the raw stream name (for R*Tree table references).
+    ``prefix`` is a column qualifier (e.g. ``"meta."`` for JOIN queries).
     """
-    where_parts: list[str] = []
-    params: list[Any] = []
-    joins: list[str] = []
-
-    for f in query.filters:
-        if isinstance(f, EmbeddingSearchFilter):
-            where_parts.append(
-                f"{table}.id IN (SELECT rowid FROM {table}_vec WHERE embedding MATCH ? AND k = ?)"
-            )
-            params.extend([json.dumps(f.query), f.k])
-        elif isinstance(f, TextSearchFilter):
-            fts_sub = f"SELECT rowid FROM {table}_fts WHERE content MATCH ?"
-            fts_params: list[Any] = [f.text]
-            if f.k is not None:
-                fts_sub += " LIMIT ?"
-                fts_params.append(f.k)
-            where_parts.append(f"{table}.id IN ({fts_sub})")
-            params.extend(fts_params)
-        elif isinstance(f, NearFilter):
-            joins.append(f"JOIN {table}_rtree AS r ON r.id = {table}.id")
-            p = f.pose.position
-            x, y, z = p.x, p.y, p.z
-            where_parts.append(
-                "r.min_x >= ? AND r.max_x <= ? AND "
-                "r.min_y >= ? AND r.max_y <= ? AND "
-                "r.min_z >= ? AND r.max_z <= ?"
-            )
-            params.extend(
-                [x - f.radius, x + f.radius, y - f.radius, y + f.radius, z - f.radius, z + f.radius]
-            )
-        else:
-            # Simple filters + LineageFilter → delegate to _compile_filter
-            sql_frag, p = _compile_filter(f, table)
-            where_parts.append(sql_frag)
-            params.extend(p)
-
-    where = " AND ".join(where_parts) if where_parts else "1=1"
-    join_clause = " ".join(joins)
-
-    sql = f"SELECT {table}.{select_col} FROM {table}"
-    if join_clause:
-        sql += f" {join_clause}"
-    sql += f" WHERE {where}"
-
-    if query.order_field:
-        if query.order_field not in _ALLOWED_ORDER_FIELDS:
-            raise ValueError(f"Invalid order field: {query.order_field!r}")
-        sql += f" ORDER BY {query.order_field}"
-        if query.order_desc:
-            sql += " DESC"
-    if query.limit_val is not None:
-        sql += f" LIMIT {query.limit_val}"
-    if query.offset_val is not None:
-        sql += f" OFFSET {query.offset_val}"
-
-    return sql, params
-
-
-def _has_near_filter(query: StreamQuery) -> NearFilter | None:
-    for f in query.filters:
-        if isinstance(f, NearFilter):
-            return f
+    if isinstance(f, AfterFilter):
+        return (f"{prefix}ts > ?", [f.t])
+    if isinstance(f, BeforeFilter):
+        return (f"{prefix}ts < ?", [f.t])
+    if isinstance(f, TimeRangeFilter):
+        return (f"{prefix}ts >= ? AND {prefix}ts <= ?", [f.t1, f.t2])
+    if isinstance(f, AtFilter):
+        return (f"ABS({prefix}ts - ?) <= ?", [f.t, f.tolerance])
+    if isinstance(f, TagsFilter):
+        clauses = []
+        params: list[Any] = []
+        for k, v in f.tags.items():
+            clauses.append(f"json_extract({prefix}tags, '$.{k}') = ?")
+            params.append(v)
+        return (" AND ".join(clauses), params)
+    if isinstance(f, NearFilter):
+        pose = f.pose
+        if pose is None:
+            return None
+        if hasattr(pose, "position"):
+            pose = pose.position
+        cx, cy, cz = _xyz(pose)
+        r = f.radius
+        # R*Tree bounding-box pre-filter + exact squared-distance check
+        rtree_sql = (
+            f'{prefix}id IN (SELECT id FROM "{stream}_rtree" '
+            f"WHERE x_min >= ? AND x_max <= ? "
+            f"AND y_min >= ? AND y_max <= ? "
+            f"AND z_min >= ? AND z_max <= ?)"
+        )
+        dist_sql = (
+            f"(({prefix}pose_x - ?) * ({prefix}pose_x - ?) + "
+            f"({prefix}pose_y - ?) * ({prefix}pose_y - ?) + "
+            f"({prefix}pose_z - ?) * ({prefix}pose_z - ?) <= ?)"
+        )
+        return (
+            f"{rtree_sql} AND {dist_sql}",
+            [
+                cx - r,
+                cx + r,
+                cy - r,
+                cy + r,
+                cz - r,
+                cz + r,  # R*Tree bbox
+                cx,
+                cx,
+                cy,
+                cy,
+                cz,
+                cz,
+                r * r,  # squared distance
+            ],
+        )
+    # PredicateFilter — not pushable
     return None
 
 
-def _compile_query(query: StreamQuery, table: str) -> tuple[str, list[Any]]:
-    """Compile a StreamQuery to (SQL, params) for a metadata SELECT."""
-    where_parts: list[str] = []
-    params: list[Any] = []
-    joins: list[str] = []
+def _compile_query(
+    query: StreamQuery,
+    table: str,
+    *,
+    join_blob: bool = False,
+) -> tuple[str, list[Any], list[Filter]]:
+    """Compile a StreamQuery to SQL.
 
-    for f in query.filters:
-        if isinstance(f, NearFilter):
-            # R*Tree bounding-box pre-filter + exact Euclidean distance in SQL
-            joins.append(f"JOIN {table}_rtree AS r ON r.id = {table}.id")
-            p = f.pose.position
-            x, y, z = p.x, p.y, p.z
-            where_parts.append(
-                "r.min_x >= ? AND r.max_x <= ? AND "
-                "r.min_y >= ? AND r.max_y <= ? AND "
-                "r.min_z >= ? AND r.max_z <= ?"
-            )
-            params.extend(
-                [x - f.radius, x + f.radius, y - f.radius, y + f.radius, z - f.radius, z + f.radius]
-            )
-            # Exact spherical check so LIMIT/OFFSET work correctly
-            where_parts.append(
-                f"({table}.pose_x - ?) * ({table}.pose_x - ?) + "
-                f"({table}.pose_y - ?) * ({table}.pose_y - ?) + "
-                f"({table}.pose_z - ?) * ({table}.pose_z - ?) <= ? * ?"
-            )
-            params.extend([x, x, y, y, z, z, f.radius, f.radius])
-        else:
-            sql_frag, p = _compile_filter(f, table)
-            where_parts.append(sql_frag)
-            params.extend(p)
-
-    where = " AND ".join(where_parts) if where_parts else "1=1"
-    join_clause = " ".join(joins)
-
-    if query.order_field:
-        if query.order_field not in _ALLOWED_ORDER_FIELDS:
-            raise ValueError(f"Invalid order field: {query.order_field!r}")
-        order = f"ORDER BY {table}.{query.order_field}"
-        if query.order_desc:
-            order += " DESC"
+    Returns (sql, params, python_filters) where python_filters must be
+    applied as post-filters in Python.
+    """
+    prefix = "meta." if join_blob else ""
+    if join_blob:
+        select = f'SELECT meta.id, meta.ts, meta.pose_x, meta.pose_y, meta.pose_z, meta.pose_qx, meta.pose_qy, meta.pose_qz, meta.pose_qw, json(meta.tags), blob.data FROM "{table}" AS meta JOIN "{table}_blob" AS blob ON blob.id = meta.id'
     else:
-        order = f"ORDER BY {table}.id"
+        select = f'SELECT id, ts, pose_x, pose_y, pose_z, pose_qx, pose_qy, pose_qz, pose_qw, json(tags) FROM "{table}"'
 
-    sql = f"SELECT {table}.{_META_COLS.replace(', ', f', {table}.')} FROM {table}"
-    if join_clause:
-        sql += f" {join_clause}"
-    sql += f" WHERE {where} {order}"
-    if query.limit_val is not None:
-        sql += f" LIMIT {query.limit_val}"
-    if query.offset_val is not None:
-        sql += f" OFFSET {query.offset_val}"
-    return sql, params
-
-
-def _compile_count(query: StreamQuery, table: str) -> tuple[str, list[Any]]:
     where_parts: list[str] = []
     params: list[Any] = []
-    joins: list[str] = []
+    python_filters: list[Filter] = []
 
     for f in query.filters:
-        if isinstance(f, NearFilter):
-            joins.append(f"JOIN {table}_rtree AS r ON r.id = {table}.id")
-            p = f.pose.position
-            x, y, z = p.x, p.y, p.z
-            where_parts.append(
-                "r.min_x >= ? AND r.max_x <= ? AND "
-                "r.min_y >= ? AND r.max_y <= ? AND "
-                "r.min_z >= ? AND r.max_z <= ?"
-            )
-            params.extend(
-                [
-                    x - f.radius,
-                    x + f.radius,
-                    y - f.radius,
-                    y + f.radius,
-                    z - f.radius,
-                    z + f.radius,
-                ]
-            )
+        compiled = _compile_filter(f, table, prefix)
+        if compiled is not None:
+            sql_part, sql_params = compiled
+            where_parts.append(sql_part)
+            params.extend(sql_params)
         else:
-            sql_frag, p = _compile_filter(f, table)
-            where_parts.append(sql_frag)
-            params.extend(p)
+            python_filters.append(f)
 
-    where = " AND ".join(where_parts) if where_parts else "1=1"
-    join_clause = " ".join(joins)
-    sql = f"SELECT COUNT(*) FROM {table}"
-    if join_clause:
-        sql += f" {join_clause}"
-    sql += f" WHERE {where}"
-    return sql, params
+    sql = select
+    if where_parts:
+        sql += " WHERE " + " AND ".join(where_parts)
 
+    # ORDER BY
+    if query.order_field:
+        direction = "DESC" if query.order_desc else "ASC"
+        sql += f" ORDER BY {prefix}{query.order_field} {direction}"
+    else:
+        sql += f" ORDER BY {prefix}id ASC"
 
-# ── Near-filter post-processing (exact distance after R*Tree bbox) ───
+    # Only push LIMIT/OFFSET to SQL when there are no Python post-filters
+    if not python_filters and not query.search_text:
+        if query.limit_val is not None:
+            if query.offset_val:
+                sql += f" LIMIT {query.limit_val} OFFSET {query.offset_val}"
+            else:
+                sql += f" LIMIT {query.limit_val}"
+        elif query.offset_val:
+            sql += f" LIMIT -1 OFFSET {query.offset_val}"
 
-
-def _apply_near_post_filter(
-    rows: list[Observation[Any]], near: NearFilter
-) -> list[Observation[Any]]:
-    """Post-filter R*Tree candidates by exact Euclidean distance."""
-    tp = near.pose.position
-    result: list[Observation[Any]] = []
-    for obs in rows:
-        if obs.pose is None:
-            continue
-        op = obs.pose.position
-        dist = ((op.x - tp.x) ** 2 + (op.y - tp.y) ** 2 + (op.z - tp.z) ** 2) ** 0.5
-        if dist <= near.radius:
-            result.append(obs)
-    return result
+    return (sql, params, python_filters)
 
 
-# ── Backend ───────────────────────────────────────────────────────────
+def _compile_count(
+    query: StreamQuery,
+    table: str,
+) -> tuple[str, list[Any], list[Filter]]:
+    """Compile a StreamQuery to a COUNT SQL query."""
+    where_parts: list[str] = []
+    params: list[Any] = []
+    python_filters: list[Filter] = []
+
+    for f in query.filters:
+        compiled = _compile_filter(f, table)
+        if compiled is not None:
+            sql_part, sql_params = compiled
+            where_parts.append(sql_part)
+            params.extend(sql_params)
+        else:
+            python_filters.append(f)
+
+    sql = f'SELECT COUNT(*) FROM "{table}"'
+    if where_parts:
+        sql += " WHERE " + " AND ".join(where_parts)
+
+    return (sql, params, python_filters)
 
 
-class SqliteStreamBackend:
-    """StreamBackend implementation for a single SQLite-backed stream."""
+# ── SqliteBackend ────────────────────────────────────────────────
 
-    def __init__(
-        self,
-        conn: sqlite3.Connection,
-        table: str,
-        *,
-        pose_provider: PoseProvider | None = None,
-        codec: Codec[Any] | None = None,
-    ) -> None:
-        _validate_identifier(table)
+
+class SqliteBackend(Configurable[BackendConfig], Generic[T]):
+    """SQLite-backed observation storage for a single stream (table)."""
+
+    default_config: type[BackendConfig] = BackendConfig
+
+    def __init__(self, conn: sqlite3.Connection, name: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self._conn = conn
-        self._table = table
-        self._pose_provider = pose_provider
-        self._codec = codec or PickleCodec()
-        self._subject: Subject[Observation[Any]] = Subject()  # type: ignore[type-arg]
+        self._name = name
+        self._codec: Codec[Any] = self.config.codec  # type: ignore[assignment]
+        self._channel: LiveChannel[T] = self.config.live_channel or SubjectChannel()
+        self._lock = threading.Lock()
+        self._tag_indexes: set[str] = set()
 
     @property
-    def appended_subject(self) -> Subject[Observation[Any]]:  # type: ignore[type-arg]
-        return self._subject
+    def name(self) -> str:
+        return self._name
 
     @property
-    def stream_name(self) -> str:
-        return self._table
+    def live_channel(self) -> LiveChannel[T]:
+        return self._channel
 
-    def _post_insert(self, row_id: int, payload: Any) -> None:
-        """Hook for subclasses to add extra inserts inside the transaction."""
+    @property
+    def _join_blobs(self) -> bool:
+        if not self.config.eager_blobs:
+            return False
+        bs = self.config.blob_store
+        return isinstance(bs, SqliteBlobStore) and bs._conn is self._conn
 
-    def do_append(
-        self,
-        payload: Any,
-        ts: float | None,
-        pose: Any | None,
-        tags: dict[str, Any] | None,
-        parent_id: int | None = None,
-    ) -> Observation[Any]:
-        if ts is None:
-            ts = time.time()
-        if pose is None and self._pose_provider is not None:
-            pose = self._pose_provider(ts)
-
-        pose_cols = _decompose_pose(pose)
-        tags_json = _serialize_tags(tags)
-
-        # Encode payload before touching the DB so a codec error can't leave
-        # a metadata row without a matching payload row.
-        payload_blob = self._codec.encode(payload)
-
-        # 1. Insert into meta table
-        if pose_cols is not None:
-            cur = self._conn.execute(
-                f"INSERT INTO {self._table} "
-                "(ts, pose_x, pose_y, pose_z, pose_qx, pose_qy, pose_qz, pose_qw, tags, parent_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (ts, *pose_cols, tags_json, parent_id),
-            )
-        else:
-            cur = self._conn.execute(
-                f"INSERT INTO {self._table} (ts, tags, parent_id) VALUES (?, ?, ?)",
-                (ts, tags_json, parent_id),
-            )
-        row_id = cur.lastrowid
-        assert row_id is not None
-
-        # 2. Insert into payload table
-        self._conn.execute(
-            f"INSERT INTO {self._table}_payload (id, data) VALUES (?, ?)",
-            (row_id, payload_blob),
-        )
-
-        # 3. Insert into R*Tree (if pose)
-        if pose_cols is not None:
-            x, y, z = pose_cols[0], pose_cols[1], pose_cols[2]
-            self._conn.execute(
-                f"INSERT INTO {self._table}_rtree (id, min_x, max_x, min_y, max_y, min_z, max_z) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (row_id, x, x, y, y, z, z),
-            )
-
-        # 4. Subclass hook (vec0, FTS, etc.)
-        self._post_insert(row_id, payload)
-
-        self._conn.commit()
-
-        obs = Observation(
-            id=row_id,
-            ts=ts,
-            pose=pose,
-            tags=tags or {},
-            parent_id=parent_id,
-            _data=payload,
-        )
-        self._subject.on_next(obs)
-        return obs
-
-    def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]:
-        sql, params = _compile_query(query, self._table)
-        rows = self._conn.execute(sql, params).fetchall()
-        return [self._row_to_obs(r) for r in rows]
-
-    def execute_count(self, query: StreamQuery) -> int:
-        sql, params = _compile_count(query, self._table)
-        result = self._conn.execute(sql, params).fetchone()
-        return result[0] if result else 0  # type: ignore[no-any-return]
-
-    def load_data(self, row_id: int) -> Any:
-        """Load payload by row ID from the database."""
-        r = self._conn.execute(
-            f"SELECT data FROM {self._table}_payload WHERE id = ?", (row_id,)
-        ).fetchone()
-        if r is None:
-            raise LookupError(f"No payload for id={row_id}")
-        return self._codec.decode(r[0])
-
-    def _make_loader(self, row_id: int) -> Callable[[], Any]:
+    def _make_loader(self, row_id: int) -> Any:
+        bs = self.config.blob_store
+        assert bs is not None
+        name, codec = self._name, self._codec
         owner_tid = threading.get_ident()
 
         def loader() -> Any:
-            if threading.get_ident() != owner_tid:
-                raise RuntimeError(
-                    "Observation.data accessed from a different thread than the one that "
-                    "fetched it. Access .data on the original thread first to cache it, "
-                    "or use obs.load() before passing across threads."
-                )
-            return self.load_data(row_id)
+            assert threading.get_ident() == owner_tid
+            raw = bs.get(name, row_id)
+            return codec.decode(raw)
 
         return loader
 
-    def _row_to_obs(self, row: Any) -> Observation[Any]:
-        row_id, ts, px, py, pz, qx, qy, qz, qw, tags_json, pid = row
+    def _row_to_obs(self, row: tuple[Any, ...], *, has_blob: bool = False) -> Observation[T]:
+        if has_blob:
+            row_id, ts, px, py, pz, qx, qy, qz, qw, tags_json, blob_data = row
+        else:
+            row_id, ts, px, py, pz, qx, qy, qz, qw, tags_json = row
+            blob_data = None
+
+        pose = _reconstruct_pose(px, py, pz, qx, qy, qz, qw)
+        tags = json.loads(tags_json) if tags_json else {}
+
+        if has_blob and blob_data is not None:
+            data = self._codec.decode(blob_data)
+            return Observation(id=row_id, ts=ts, pose=pose, tags=tags, _data=data)
+
         return Observation(
             id=row_id,
             ts=ts,
-            pose=_reconstruct_pose(px, py, pz, qx, qy, qz, qw),
-            tags=_deserialize_tags(tags_json),
-            parent_id=pid,
-            _data_loader=self._make_loader(row_id),
+            pose=pose,
+            tags=tags,
+            _data=_UNLOADED,
+            _loader=self._make_loader(row_id),  # type: ignore[arg-type]
         )
 
+    # ── Write ────────────────────────────────────────────────────
 
-class SqliteEmbeddingBackend(SqliteStreamBackend):
-    """Backend for EmbeddingStream — stores vectors in a vec0 virtual table."""
+    def _ensure_tag_indexes(self, tags: dict[str, Any]) -> None:
+        """Auto-create expression indexes for any new tag keys."""
+        for key in tags:
+            if key not in self._tag_indexes and _IDENT_RE.match(key):
+                self._conn.execute(
+                    f'CREATE INDEX IF NOT EXISTS "{self._name}_tag_{key}" '
+                    f"ON \"{self._name}\"(json_extract(tags, '$.{key}'))"
+                )
+                self._tag_indexes.add(key)
 
-    def __init__(
-        self,
-        conn: sqlite3.Connection,
-        table: str,
-        *,
-        vec_dimensions: int | None = None,
-        pose_provider: PoseProvider | None = None,
-        parent_table: str | None = None,
-        codec: Codec[Any] | None = None,
-    ) -> None:
-        super().__init__(conn, table, pose_provider=pose_provider, codec=codec)
-        self._vec_dimensions = vec_dimensions
-        self._parent_table = parent_table
+    def append(self, obs: Observation[T]) -> Observation[T]:
+        encoded = self._codec.encode(obs._data)
+        pose = _decompose_pose(obs.pose)
+        tags_json = json.dumps(obs.tags) if obs.tags else "{}"
 
-    def _post_insert(self, row_id: int, payload: Any) -> None:
-        from dimos.models.embedding.base import Embedding
+        with self._lock:
+            if obs.tags:
+                self._ensure_tag_indexes(obs.tags)
+            if pose:
+                px, py, pz, qx, qy, qz, qw = pose
+            else:
+                px = py = pz = qx = qy = qz = qw = None  # type: ignore[assignment]
 
-        if isinstance(payload, Embedding):
-            vec = payload.to_numpy().tolist()
-            if self._vec_dimensions is None:
-                self._vec_dimensions = len(vec)
-                self._ensure_vec_table()
-            self._conn.execute(
-                f"INSERT INTO {self._table}_vec (rowid, embedding) VALUES (?, ?)",
-                (row_id, json.dumps(vec)),
+            cur = self._conn.execute(
+                f'INSERT INTO "{self._name}" (ts, pose_x, pose_y, pose_z, pose_qx, pose_qy, pose_qz, pose_qw, tags) '
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, jsonb(?))",
+                (obs.ts, px, py, pz, qx, qy, qz, qw, tags_json),
+            )
+            row_id = cur.lastrowid
+            assert row_id is not None
+
+            bs = self.config.blob_store
+            assert bs is not None
+            bs.put(self._name, row_id, encoded)
+
+            # R*Tree spatial index
+            if pose:
+                self._conn.execute(
+                    f'INSERT INTO "{self._name}_rtree" (id, x_min, x_max, y_min, y_max, z_min, z_max) '
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (row_id, px, px, py, py, pz, pz),
+                )
+
+            vs = self.config.vector_store
+            if vs is not None:
+                emb = getattr(obs, "embedding", None)
+                if emb is not None:
+                    vs.put(self._name, row_id, emb)
+
+            self._conn.commit()
+
+        obs.id = row_id
+        self._channel.notify(obs)
+        return obs
+
+    # ── Read ─────────────────────────────────────────────────────
+
+    def iterate(self, query: StreamQuery) -> Iterator[Observation[T]]:
+        if query.search_vec is not None and query.live_buffer is not None:
+            raise TypeError("Cannot combine .search() with .live() — search is a batch operation.")
+        buf = query.live_buffer
+        if buf is not None:
+            sub = self._channel.subscribe(buf)
+            return self._iterate_live(query, buf, sub)
+        return self._iterate_snapshot(query)
+
+    def _iterate_snapshot(self, query: StreamQuery) -> Iterator[Observation[T]]:
+        if query.search_vec is not None and self.config.vector_store is not None:
+            yield from self._vector_search(query)
+            return
+
+        join = self._join_blobs
+        sql, params, python_filters = _compile_query(query, self._name, join_blob=join)
+
+        cur = self._conn.execute(sql, params)
+        cur.arraysize = self.config.page_size
+        it: Iterator[Observation[T]] = (self._row_to_obs(r, has_blob=join) for r in cur)
+
+        # Text search — requires loading data
+        if query.search_text is not None:
+            needle = query.search_text.lower()
+            it = (obs for obs in it if needle in str(obs.data).lower())
+
+        # Apply Python post-filters
+        if python_filters:
+            it = (obs for obs in it if all(f.matches(obs) for f in python_filters))
+
+        # Apply LIMIT/OFFSET in Python when we couldn't push to SQL
+        if python_filters or query.search_text:
+            if query.offset_val:
+                it = islice(it, query.offset_val, None)
+            if query.limit_val is not None:
+                it = islice(it, query.limit_val)
+
+        yield from it
+
+    def _vector_search(self, query: StreamQuery) -> Iterator[Observation[T]]:
+        vs = self.config.vector_store
+        assert vs is not None and query.search_vec is not None
+
+        hits = vs.search(self._name, query.search_vec, query.search_k or 10)
+        if not hits:
+            return
+
+        ids = [h[0] for h in hits]
+        dict(hits)
+
+        # Batch-fetch metadata
+        join = self._join_blobs
+        placeholders = ",".join("?" * len(ids))
+        if join:
+            sql = (
+                f"SELECT meta.id, meta.ts, meta.pose_x, meta.pose_y, meta.pose_z, "
+                f"meta.pose_qx, meta.pose_qy, meta.pose_qz, meta.pose_qw, json(meta.tags), blob.data "
+                f'FROM "{self._name}" AS meta '
+                f'JOIN "{self._name}_blob" AS blob ON blob.id = meta.id '
+                f"WHERE meta.id IN ({placeholders})"
+            )
+        else:
+            sql = (
+                f"SELECT id, ts, pose_x, pose_y, pose_z, "
+                f"pose_qx, pose_qy, pose_qz, pose_qw, json(tags) "
+                f'FROM "{self._name}" WHERE id IN ({placeholders})'
             )
 
-    def _ensure_vec_table(self) -> None:
-        if self._vec_dimensions is None:
-            return
-        self._conn.execute(
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS {self._table}_vec "
-            f"USING vec0(embedding float[{self._vec_dimensions}] distance_metric=cosine)"
-        )
-        self._conn.commit()
+        rows = self._conn.execute(sql, ids).fetchall()
+        obs_by_id: dict[int, Observation[T]] = {}
+        for r in rows:
+            obs = self._row_to_obs(r, has_blob=join)
+            obs_by_id[obs.id] = obs
 
-    def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]:
-        emb_filter = None
-        for f in query.filters:
-            if isinstance(f, EmbeddingSearchFilter):
-                emb_filter = f
-                break
+        # Preserve VectorStore ranking order, promoting to EmbeddedObservation
+        ranked: list[Observation[T]] = []
+        for obs_id, sim in hits:
+            match = obs_by_id.get(obs_id)
+            if match is not None:
+                ranked.append(
+                    match.derive(data=match.data, embedding=query.search_vec, similarity=sim)
+                )
 
-        if emb_filter is not None:
-            return self._fetch_by_vector(query, emb_filter)
+        # Apply remaining query ops (skip vector search)
+        rest = replace(query, search_vec=None, search_k=None)
+        yield from rest.apply(iter(ranked))
 
-        return super().execute_fetch(query)
-
-    def execute_count(self, query: StreamQuery) -> int:
-        if any(isinstance(f, EmbeddingSearchFilter) for f in query.filters):
-            return len(self.execute_fetch(query))
-        return super().execute_count(query)
-
-    def _fetch_by_vector(
-        self, query: StreamQuery, emb_filter: EmbeddingSearchFilter
-    ) -> list[Observation[Any]]:
-        """Fetch using vec0 similarity search, then apply remaining filters."""
-        vec_sql = (
-            f"SELECT rowid, distance FROM {self._table}_vec "
-            f"WHERE embedding MATCH ? ORDER BY distance LIMIT ?"
-        )
-        vec_rows = self._conn.execute(
-            vec_sql, (json.dumps(emb_filter.query), emb_filter.k)
-        ).fetchall()
-
-        if not vec_rows:
-            return []
-
-        dist_map = {r[0]: r[1] for r in vec_rows}
-        rowids = list(dist_map.keys())
-        placeholders = ",".join("?" * len(rowids))
-
-        where_parts: list[str] = [f"{self._table}.id IN ({placeholders})"]
-        params: list[Any] = list(rowids)
-
-        for f in query.filters:
-            if isinstance(f, EmbeddingSearchFilter):
-                continue
-            sql_frag, p = _compile_filter(f, self._table)
-            where_parts.append(sql_frag)
-            params.extend(p)
-
-        where = " AND ".join(where_parts)
-        sql = (
-            f"SELECT {self._table}.{_META_COLS.replace(', ', f', {self._table}.')} "
-            f"FROM {self._table} WHERE {where}"
-        )
-        rows = self._conn.execute(sql, params).fetchall()
-
-        observations: list[Observation[Any]] = [self._row_to_obs(r) for r in rows]
-
-        # Populate similarity scores from vec0 cosine distance (0=identical, 2=opposite)
-        for obs in observations:
-            if isinstance(obs, EmbeddingObservation):
-                obs.similarity = max(0.0, min(1.0, 1.0 - dist_map.get(obs.id, 0.0)))
-
-        # Re-sort by distance rank (IN clause doesn't preserve vec0 ordering)
-        rank = {rid: i for i, rid in enumerate(rowids)}
-        observations.sort(key=lambda o: rank.get(o.id, len(rank)))
-
-        near = _has_near_filter(query)
-        if near is not None:
-            observations = _apply_near_post_filter(observations, near)
-
-        return observations
-
-    def _row_to_obs(self, row: Any) -> EmbeddingObservation:
-        row_id, ts, px, py, pz, qx, qy, qz, qw, tags_json, pid = row
-        return EmbeddingObservation(
-            id=row_id,
-            ts=ts,
-            pose=_reconstruct_pose(px, py, pz, qx, qy, qz, qw),
-            tags=_deserialize_tags(tags_json),
-            parent_id=pid,
-            _data_loader=self._make_loader(row_id),
-        )
-
-
-class SqliteTextBackend(SqliteStreamBackend):
-    """Backend for TextStream — maintains an FTS5 index."""
-
-    def __init__(
+    def _iterate_live(
         self,
-        conn: sqlite3.Connection,
-        table: str,
-        *,
-        tokenizer: str = "unicode61",
-        pose_provider: PoseProvider | None = None,
-        codec: Codec[Any] | None = None,
-    ) -> None:
-        super().__init__(conn, table, pose_provider=pose_provider, codec=codec)
-        self._tokenizer = tokenizer
+        query: StreamQuery,
+        buf: BackpressureBuffer[Observation[T]],
+        sub: DisposableBase,
+    ) -> Iterator[Observation[T]]:
+        from dimos.memory.buffer import ClosedError
 
-    def _post_insert(self, row_id: int, payload: Any) -> None:
-        text = str(payload) if payload is not None else ""
-        self._conn.execute(
-            f"INSERT INTO {self._table}_fts (rowid, content) VALUES (?, ?)",
-            (row_id, text),
-        )
+        # Backfill phase
+        last_id = -1
+        for obs in self._iterate_snapshot(query):
+            last_id = max(last_id, obs.id)
+            yield obs
 
-    def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]:
-        text_filter = None
-        for f in query.filters:
-            if isinstance(f, TextSearchFilter):
-                text_filter = f
-                break
+        # Live tail
+        filters = query.filters
+        try:
+            while True:
+                obs = buf.take()
+                if obs.id <= last_id:
+                    continue
+                last_id = obs.id
+                if filters and not all(f.matches(obs) for f in filters):
+                    continue
+                yield obs
+        except (ClosedError, StopIteration):
+            sub.dispose()
 
-        if text_filter is not None:
-            return self._fetch_by_text(query, text_filter)
+    def count(self, query: StreamQuery) -> int:
+        if query.search_vec or query.search_text:
+            return sum(1 for _ in self.iterate(query))
 
-        return super().execute_fetch(query)
+        sql, params, python_filters = _compile_count(query, self._name)
+        if python_filters:
+            return sum(1 for _ in self.iterate(query))
 
-    def _fetch_by_text(
-        self, query: StreamQuery, text_filter: TextSearchFilter
-    ) -> list[Observation[Any]]:
-        fts_sql = f"SELECT rowid, rank FROM {self._table}_fts WHERE content MATCH ? ORDER BY rank"
-        fts_params: list[Any] = [text_filter.text]
-        if text_filter.k is not None:
-            fts_sql += " LIMIT ?"
-            fts_params.append(text_filter.k)
-
-        fts_rows = self._conn.execute(fts_sql, fts_params).fetchall()
-        if not fts_rows:
-            return []
-
-        rowids = [r[0] for r in fts_rows]
-        placeholders = ",".join("?" * len(rowids))
-
-        where_parts: list[str] = [f"{self._table}.id IN ({placeholders})"]
-        params: list[Any] = list(rowids)
-
-        for f in query.filters:
-            if isinstance(f, TextSearchFilter):
-                continue
-            sql_frag, p = _compile_filter(f, self._table)
-            where_parts.append(sql_frag)
-            params.extend(p)
-
-        where = " AND ".join(where_parts)
-        sql = (
-            f"SELECT {self._table}.{_META_COLS.replace(', ', f', {self._table}.')} "
-            f"FROM {self._table} WHERE {where}"
-        )
-        rows = self._conn.execute(sql, params).fetchall()
-
-        observations = [self._row_to_obs(r) for r in rows]
-
-        # Re-sort by FTS rank (IN clause doesn't preserve FTS5 ordering)
-        rank = {rid: i for i, rid in enumerate(rowids)}
-        observations.sort(key=lambda o: rank.get(o.id, len(rank)))
-
-        near = _has_near_filter(query)
-        if near is not None:
-            observations = _apply_near_post_filter(observations, near)
-
-        return observations
+        row = self._conn.execute(sql, params).fetchone()
+        return int(row[0]) if row else 0
 
 
-# ── Session ───────────────────────────────────────────────────────────
+# ── SqliteSession ────────────────────────────────────────────────
 
 
 class SqliteSession(Session):
-    """Session against a SQLite database."""
+    """Session owning a single SQLite connection."""
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(
+        self, conn: sqlite3.Connection, *, vec_available: bool = False, **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
         self._conn = conn
-        self._streams: dict[str, Stream[Any]] = {}
-        self._ensure_meta_table()
+        self._vec_available = vec_available
+        self._blob_store: SqliteBlobStore | None = None
+        self._vector_store: Any | None = None
 
-    def resolve_parent_stream(self, name: str) -> str | None:
-        row = self._conn.execute(
-            "SELECT parent_stream FROM _streams WHERE name = ?", (name,)
-        ).fetchone()
-        return row[0] if row and row[0] else None
-
-    def resolve_lineage_chain(self, source: str, target: str) -> tuple[str, ...]:
-        """Walk ``_streams.parent_stream`` from *source* toward *target*.
-
-        Returns intermediate table names (empty tuple for direct parent).
-        """
-        current = source
-        intermediates: list[str] = []
-        visited = {source}
-
-        while True:
-            row = self._conn.execute(
-                "SELECT parent_stream FROM _streams WHERE name = ?", (current,)
-            ).fetchone()
-            if not row or not row[0]:
-                raise ValueError(f"No lineage path from {source!r} to {target!r}")
-
-            parent_name: str = row[0]
-            if parent_name == target:
-                return tuple(intermediates)
-
-            if parent_name in visited:
-                raise ValueError(f"Cycle detected in lineage chain at {parent_name!r}")
-
-            visited.add(parent_name)
-            intermediates.append(parent_name)
-            current = parent_name
-
-    def _ensure_meta_table(self) -> None:
+        # Create stream registry
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS _streams ("
-            "  name TEXT PRIMARY KEY,"
-            "  payload_module TEXT,"
-            "  stream_kind TEXT DEFAULT 'stream',"
-            "  parent_stream TEXT,"
-            "  embedding_dim INTEGER"
+            "    name           TEXT PRIMARY KEY,"
+            "    payload_module TEXT NOT NULL,"
+            "    codec_id       TEXT NOT NULL"
             ")"
         )
         self._conn.commit()
 
-    def stream(
-        self,
-        name: str,
-        payload_type: type,
-        *,
-        pose_provider: PoseProvider | None = None,
-    ) -> Stream[Any]:
+    def _ensure_shared_stores(self) -> None:
+        """Lazily create shared stores on first stream creation."""
+        if self._blob_store is None:
+            self._blob_store = SqliteBlobStore(self._conn)
+        if self._vector_store is None and self._vec_available:
+            from dimos.memory.vectorstore.sqlite import SqliteVectorStore
+
+            self._vector_store = SqliteVectorStore(self._conn)
+
+    @staticmethod
+    def _codec_id(codec: Codec[Any]) -> str:
+        from dimos.memory.codecs.jpeg import JpegCodec
+        from dimos.memory.codecs.lcm import LcmCodec
+
+        if isinstance(codec, JpegCodec):
+            return "jpeg"
+        if isinstance(codec, LcmCodec):
+            return "lcm"
+        return "pickle"
+
+    @staticmethod
+    def _codec_from_id(codec_id: str, payload_module: str) -> Codec[Any]:
+        from dimos.memory.codecs.pickle import PickleCodec
+
+        if codec_id == "jpeg":
+            from dimos.memory.codecs.jpeg import JpegCodec
+
+            return JpegCodec()
+        if codec_id == "lcm":
+            from dimos.memory.codecs.lcm import LcmCodec
+
+            # Resolve the payload type from module path
+            parts = payload_module.rsplit(".", 1)
+            if len(parts) == 2:
+                import importlib
+
+                mod = importlib.import_module(parts[0])
+                cls = getattr(mod, parts[1])
+                return LcmCodec(cls)
+            return PickleCodec()
+        return PickleCodec()
+
+    def _create_backend(
+        self, name: str, payload_type: type[Any] | None = None, **config: Any
+    ) -> Backend[Any]:
         _validate_identifier(name)
-        if name in self._streams:
-            return self._streams[name]
+        self._ensure_shared_stores()
 
-        self._ensure_stream_tables(name)
-        self._register_stream(name, payload_type, "stream")
+        # Look up existing stream in registry
+        row = self._conn.execute(
+            "SELECT payload_module, codec_id FROM _streams WHERE name = ?", (name,)
+        ).fetchone()
 
-        codec = codec_for_type(payload_type)
-        backend = SqliteStreamBackend(self._conn, name, pose_provider=pose_provider, codec=codec)
-        s: Stream[Any] = Stream(backend=backend, session=self, payload_type=payload_type)
-        self._streams[name] = s
-        return s
-
-    def text_stream(
-        self,
-        name: str,
-        *,
-        tokenizer: str = "unicode61",
-        pose_provider: PoseProvider | None = None,
-    ) -> TextStream[Any]:
-        _validate_identifier(name)
-        if name in self._streams:
-            return self._streams[name]  # type: ignore[return-value]
-
-        self._ensure_stream_tables(name)
-        self._ensure_fts_table(name, tokenizer)
-        self._register_stream(name, str, "text")
-
-        codec = codec_for_type(str)
-        backend = SqliteTextBackend(
-            self._conn, name, tokenizer=tokenizer, pose_provider=pose_provider, codec=codec
-        )
-        ts: TextStream[Any] = TextStream(backend=backend, session=self, payload_type=str)
-        self._streams[name] = ts
-        return ts
-
-    def embedding_stream(
-        self,
-        name: str,
-        *,
-        vec_dimensions: int | None = None,
-        pose_provider: PoseProvider | None = None,
-        parent_table: str | None = None,
-        embedding_model: EmbeddingModel | None = None,
-    ) -> EmbeddingStream[Any]:
-        from dimos.models.embedding.base import Embedding
-
-        _validate_identifier(name)
-        if name in self._streams:
-            existing = self._streams[name]
-            if embedding_model is not None and isinstance(existing, EmbeddingStream):
-                existing._embedding_model = embedding_model
-            return existing  # type: ignore[return-value]
-
-        self._ensure_stream_tables(name)
-        self._register_stream(name, Embedding, "embedding", embedding_dim=vec_dimensions)
-
-        codec = codec_for_type(Embedding)
-        backend = SqliteEmbeddingBackend(
-            self._conn,
-            name,
-            vec_dimensions=vec_dimensions,
-            pose_provider=pose_provider,
-            parent_table=parent_table,
-            codec=codec,
-        )
-        if vec_dimensions is not None:
-            backend._ensure_vec_table()
-
-        es: EmbeddingStream[Any] = EmbeddingStream(
-            backend=backend,
-            session=self,
-            embedding_model=embedding_model,
-            payload_type=Embedding,
-        )
-        self._streams[name] = es
-        return es
-
-    def list_streams(self) -> list[Stream[Any]]:
-        rows = self._conn.execute(
-            "SELECT name, payload_module, stream_kind FROM _streams"
-        ).fetchall()
-        result: list[Stream[Any]] = []
-        for name, pmodule, kind in rows:
-            _validate_identifier(name)
-            payload_type = module_path_to_type(pmodule) if pmodule else None
-            kind = kind or "stream"
-            if kind == "embedding":
-                result.append(self.embedding_stream(name))
-            elif kind == "text":
-                result.append(self.text_stream(name))
-            else:
-                result.append(self.stream(name, payload_type or object))
-        return result
-
-    def delete_stream(self, name: str) -> None:
-        _validate_identifier(name)
-        for suffix in ("_vec", "_fts", "_rtree", "_payload", ""):
-            table = f"{name}{suffix}"
-            # Virtual tables (rtree, fts, vec) need DROP TABLE, not DROP TABLE IF EXISTS
-            # on some builds, but IF EXISTS is safe for all.
-            self._conn.execute(f"DROP TABLE IF EXISTS {table}")
-        self._conn.execute("DELETE FROM _streams WHERE name = ?", (name,))
-        self._conn.commit()
-        self._streams.pop(name, None)
-
-    def materialize_transform(
-        self,
-        name: str,
-        source: Stream[Any],
-        transformer: Transformer[Any, Any],
-        *,
-        payload_type: type | None = None,
-        live: bool = False,
-        backfill_only: bool = False,
-    ) -> Stream[Any]:
-        # Resolve source table name for parent lineage
-        source_table = None
-        if source._backend is not None:
-            source_table = source._backend.stream_name
-
-        target: Stream[Any]
-        if isinstance(transformer, (EmbeddingTransformer, TextEmbeddingTransformer)):
-            target = self.embedding_stream(name, parent_table=source_table)
-            target._embedding_model = transformer.model
-        elif isinstance(transformer, CaptionTransformer):
-            target = self.text_stream(name)
+        if row is not None:
+            stored_module, stored_codec_id = row
+            if payload_type is not None:
+                actual_module = f"{payload_type.__module__}.{payload_type.__qualname__}"
+                if actual_module != stored_module:
+                    raise ValueError(
+                        f"Stream {name!r} was created with type {stored_module}, "
+                        f"but opened with {actual_module}"
+                    )
+            codec = config.get("codec") or self._codec_from_id(stored_codec_id, stored_module)
         else:
             if payload_type is None:
-                raise TypeError("materialize_transform requires payload_type for plain streams")
-            target = self.stream(name, payload_type)
-
-        # Record parent lineage in _streams registry
-        if source_table is not None:
+                raise TypeError(f"Stream {name!r} does not exist yet — payload_type is required")
+            codec = config.get("codec") or codec_for(payload_type)
+            payload_module = f"{payload_type.__module__}.{payload_type.__qualname__}"
             self._conn.execute(
-                "UPDATE _streams SET parent_stream = ? WHERE name = ?",
-                (source_table, name),
+                "INSERT INTO _streams (name, payload_module, codec_id) VALUES (?, ?, ?)",
+                (name, payload_module, self._codec_id(codec)),
             )
             self._conn.commit()
 
-        # Backfill existing data
-        if transformer.supports_backfill and not live:
-            transformer.process(source, target)
+        # Create metadata table
+        self._conn.execute(
+            f'CREATE TABLE IF NOT EXISTS "{name}" ('
+            "    id      INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "    ts      REAL    NOT NULL UNIQUE,"
+            "    pose_x  REAL, pose_y REAL, pose_z REAL,"
+            "    pose_qx REAL, pose_qy REAL, pose_qz REAL, pose_qw REAL,"
+            "    tags    BLOB    DEFAULT (jsonb('{}'))"
+            ")"
+        )
+        # R*Tree spatial index for pose queries
+        self._conn.execute(
+            f'CREATE VIRTUAL TABLE IF NOT EXISTS "{name}_rtree" USING rtree('
+            "    id,"
+            "    x_min, x_max,"
+            "    y_min, y_max,"
+            "    z_min, z_max"
+            ")"
+        )
+        self._conn.commit()
 
-        # Subscribe to live updates
-        if transformer.supports_live and not backfill_only:
-            source.subscribe(lambda obs: transformer.on_append(obs, target))
+        # Merge shared stores as defaults
+        if "blob_store" not in config or config["blob_store"] is None:
+            config["blob_store"] = self._blob_store
+        if "vector_store" not in config or config["vector_store"] is None:
+            config["vector_store"] = self._vector_store
+        config["codec"] = codec
 
-        return target
+        return SqliteBackend(self._conn, name, **config)
+
+    def list_streams(self) -> list[str]:
+        db_names = {row[0] for row in self._conn.execute("SELECT name FROM _streams").fetchall()}
+        return sorted(db_names | set(self._streams.keys()))
+
+    def delete_stream(self, name: str) -> None:
+        self._streams.pop(name, None)
+        self._conn.execute(f'DROP TABLE IF EXISTS "{name}"')
+        self._conn.execute(f'DROP TABLE IF EXISTS "{name}_blob"')
+        self._conn.execute(f'DROP TABLE IF EXISTS "{name}_vec"')
+        self._conn.execute(f'DROP TABLE IF EXISTS "{name}_rtree"')
+        self._conn.execute("DELETE FROM _streams WHERE name = ?", (name,))
+        self._conn.commit()
 
     def stop(self) -> None:
-        for s in self._streams.values():
-            if s._backend is not None:
-                s._backend.appended_subject.on_completed()
-        self._streams.clear()
+        super().stop()
         self._conn.close()
 
-    # ── Internal helpers ──────────────────────────────────────────────
 
-    def _ensure_stream_tables(self, name: str) -> None:
-        """Create the meta table, payload table, and R*Tree for a stream."""
-        self._conn.execute(
-            f"CREATE TABLE IF NOT EXISTS {name} ("
-            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            "  ts REAL UNIQUE NOT NULL,"
-            "  pose_x REAL,"
-            "  pose_y REAL,"
-            "  pose_z REAL,"
-            "  pose_qx REAL,"
-            "  pose_qy REAL,"
-            "  pose_qz REAL,"
-            "  pose_qw REAL,"
-            "  tags TEXT DEFAULT '{}',"
-            "  parent_id INTEGER"
-            ")"
-        )
-
-        self._conn.execute(
-            f"CREATE TABLE IF NOT EXISTS {name}_payload (  id INTEGER PRIMARY KEY,  data BLOB)"
-        )
-        self._conn.execute(
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS {name}_rtree USING rtree("
-            "  id,"
-            "  min_x, max_x,"
-            "  min_y, max_y,"
-            "  min_z, max_z"
-            ")"
-        )
-        self._conn.commit()
-
-    def _ensure_fts_table(self, name: str, tokenizer: str) -> None:
-        self._conn.execute(
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS {name}_fts "
-            f"USING fts5(content, tokenize='{tokenizer}')"
-        )
-        self._conn.commit()
-
-    def _register_stream(
-        self,
-        name: str,
-        payload_type: type | None,
-        kind: str,
-        *,
-        embedding_dim: int | None = None,
-    ) -> None:
-        module_path = type_to_module_path(payload_type) if payload_type else None
-        self._conn.execute(
-            "INSERT OR IGNORE INTO _streams (name, payload_module, stream_kind, embedding_dim) "
-            "VALUES (?, ?, ?, ?)",
-            (name, module_path, kind, embedding_dim),
-        )
-        self._conn.commit()
-
-    def _resolve_payload_type(self, name: str) -> type | None:
-        """Look up payload type from _streams metadata (for restart case)."""
-        row = self._conn.execute(
-            "SELECT payload_module FROM _streams WHERE name = ?", (name,)
-        ).fetchone()
-        if row is None or row[0] is None:
-            return None
-        return module_path_to_type(row[0])
+# ── SqliteStore ──────────────────────────────────────────────────
 
 
-# ── Store ─────────────────────────────────────────────────────────────
+@dataclass
+class SqliteStoreConfig(StoreConfig):
+    """Config for SQLite-backed store."""
+
+    path: str = "memory.db"
 
 
 class SqliteStore(Store):
-    """SQLite-backed memory store (lightweight factory).
+    """Store backed by a SQLite database file."""
 
-    Each :meth:`session` call opens a new ``sqlite3.Connection`` with WAL mode
-    and extensions loaded.  Sessions are safe to use from different threads.
-    """
+    default_config: type[SqliteStoreConfig] = SqliteStoreConfig
+    config: SqliteStoreConfig
 
-    def __init__(self, path: str | os.PathLike[str]) -> None:
-        self._path = str(path)
-        self._closed = False
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._path, check_same_thread=False)
+    def session(self, **kwargs: Any) -> SqliteSession:
+        conn = sqlite3.connect(self.config.path, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
-        self._load_extensions(conn)
-        return conn
 
-    def session(self) -> SqliteSession:
-        if self._closed:
-            raise RuntimeError("Store is closed")
-        return SqliteSession(self._connect())
-
-    def _load_extensions(self, conn: sqlite3.Connection) -> None:
+        vec_available = False
         try:
             import sqlite_vec
 
             conn.enable_load_extension(True)
             sqlite_vec.load(conn)
             conn.enable_load_extension(False)
-        except ImportError:
+            vec_available = True
+        except (ImportError, Exception):
             pass
 
-    def stop(self) -> None:
-        self._closed = True
+        return SqliteSession(conn, vec_available=vec_available, **kwargs)

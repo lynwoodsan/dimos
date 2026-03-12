@@ -14,156 +14,137 @@
 
 from __future__ import annotations
 
-import copy
 import time
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Generic,
-    Protocol,
-    Self,
-    TypeVar,
-    cast,
-    overload,
-)
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-import numpy as np
-import reactivex.operators as ops
-
-from dimos.memory.formatting import render_text, rich_text
-from dimos.memory.type import (
+from dimos.core.resource import Resource
+from dimos.memory.backend import Backend
+from dimos.memory.buffer import BackpressureBuffer, KeepLast
+from dimos.memory.filter import (
     AfterFilter,
     AtFilter,
     BeforeFilter,
-    EmbeddingObservation,
-    EmbeddingSearchFilter,
     Filter,
-    LineageFilter,
     NearFilter,
-    Observation,
+    PredicateFilter,
     StreamQuery,
     TagsFilter,
-    TextSearchFilter,
     TimeRangeFilter,
 )
-from dimos.types.timestamped import Timestamped
+from dimos.memory.transform import FnIterTransformer, FnTransformer, Transformer
+from dimos.memory.type import EmbeddedObservation, Observation
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from reactivex import Observable
-    from reactivex.abc import DisposableBase as Disposable
-    from reactivex.subject import Subject
+    import reactivex
+    from reactivex.abc import DisposableBase, ObserverBase
 
-    from dimos.memory.store import Session
-    from dimos.memory.transformer import Transformer
-    from dimos.models.embedding.base import Embedding, EmbeddingModel
-    from dimos.msgs.geometry_msgs.Pose import PoseLike
+    from dimos.models.embedding.base import Embedding
 
 T = TypeVar("T")
 R = TypeVar("R")
 
 
-class StreamBackend(Protocol):
-    """Backend protocol — implemented by SqliteStreamBackend etc."""
+class Stream(Resource, Generic[T]):
+    """Lazy, pull-based stream over observations.
 
-    def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]: ...
-    def execute_count(self, query: StreamQuery) -> int: ...
-    def do_append(
-        self,
-        payload: Any,
-        ts: float | None,
-        pose: Any | None,
-        tags: dict[str, Any] | None,
-        parent_id: int | None = None,
-    ) -> Observation[Any]: ...
+    Every filter/transform method returns a new Stream — no computation
+    happens until iteration. Backends handle query application for stored
+    data; transform sources apply filters as Python predicates.
 
-    def load_data(self, row_id: int) -> Any: ...
-
-    @property
-    def appended_subject(self) -> Subject[Observation[Any]]: ...  # type: ignore[type-arg]
-    @property
-    def stream_name(self) -> str: ...
-
-
-class Stream(Generic[T]):
-    """Lazy, chainable stream over stored observations.
-
-    Created by Session.stream(). Filter methods return new Stream instances.
-    Terminals (.fetch(), .count(), etc.) execute the query.
+    Implements Resource so live streams can be cleanly stopped via
+    ``stop()`` or used as a context manager.
     """
 
     def __init__(
         self,
-        backend: StreamBackend | None = None,
+        source: Backend[T] | Stream[Any],
         *,
-        query: StreamQuery | None = None,
-        session: Session | None = None,
-        payload_type: type | None = None,
+        xf: Transformer[Any, T] | None = None,
+        query: StreamQuery = StreamQuery(),
     ) -> None:
-        self._backend = backend
-        self._query = query or StreamQuery()
-        self._session: Session | None = session
-        self._payload_type: type | None = payload_type
+        self._source = source
+        self._xf = xf
+        self._query = query
 
-    @property
-    def name(self) -> str:
-        """The stream name in the backing store."""
-        return self._require_backend().stream_name
+    def start(self) -> None:
+        pass
 
-    def _clone(self, **overrides: Any) -> Self:
-        """Return a shallow copy with updated query fields."""
+    def stop(self) -> None:
+        """Close the live buffer (if any), unblocking iteration."""
+        buf = self._query.live_buffer
+        if buf is not None:
+            buf.close()
+        if isinstance(self._source, Stream):
+            self._source.stop()
+
+    def __str__(self) -> str:
+        # Walk the source chain to collect (xf, query) pairs
+        chain: list[tuple[Any, StreamQuery]] = []
+        current: Any = self
+        while isinstance(current, Stream):
+            chain.append((current._xf, current._query))
+            current = current._source
+        chain.reverse()  # innermost first
+
+        # current is the Backend
+        name = getattr(current, "name", "?")
+        result = f'Stream("{name}")'
+
+        for xf, query in chain:
+            if xf is not None:
+                result += f" -> {xf}"
+            q_str = str(query)
+            if q_str:
+                result += f" | {q_str}"
+
+        return result
+
+    def is_live(self) -> bool:
+        """True if this stream (or any ancestor in the chain) is in live mode."""
+        if self._query.live_buffer is not None:
+            return True
+        if isinstance(self._source, Stream):
+            return self._source.is_live()
+        return False
+
+    # ── Iteration ───────────────────────────────────────────────────
+
+    def __iter__(self) -> Iterator[Observation[T]]:
+        return self._build_iter()
+
+    def _build_iter(self) -> Iterator[Observation[T]]:
+        if isinstance(self._source, Stream):
+            return self._iter_transform()
+        # Backend handles all query application (including live if requested)
+        return self._source.iterate(self._query)
+
+    def _iter_transform(self) -> Iterator[Observation[T]]:
+        """Iterate a transform source, applying query filters in Python."""
+        assert isinstance(self._source, Stream) and self._xf is not None
+        it: Iterator[Observation[T]] = self._xf(iter(self._source))
+        return self._query.apply(it, live=self.is_live())
+
+    # ── Query builders ──────────────────────────────────────────────
+
+    def _replace_query(self, **overrides: Any) -> Stream[T]:
         q = self._query
-        clone = copy.copy(self)
-        clone._query = StreamQuery(
+        new_q = StreamQuery(
             filters=overrides.get("filters", q.filters),
             order_field=overrides.get("order_field", q.order_field),
             order_desc=overrides.get("order_desc", q.order_desc),
             limit_val=overrides.get("limit_val", q.limit_val),
             offset_val=overrides.get("offset_val", q.offset_val),
+            live_buffer=overrides.get("live_buffer", q.live_buffer),
+            search_vec=overrides.get("search_vec", q.search_vec),
+            search_k=overrides.get("search_k", q.search_k),
+            search_text=overrides.get("search_text", q.search_text),
         )
-        return clone
+        return Stream(self._source, xf=self._xf, query=new_q)
 
-    def __repr__(self) -> str:
-        return rich_text(self).plain
-
-    def __str__(self) -> str:
-        return render_text(rich_text(self))
-
-    def _with_filter(self, f: Filter) -> Self:
-        return self._clone(filters=(*self._query.filters, f))
-
-    def _require_backend(self) -> StreamBackend:
-        if self._backend is None:
-            raise TypeError(
-                "Operation requires a stored stream. Call .store() first or use session.stream()."
-            )
-        return self._backend
-
-    # ── Data loading ──────────────────────────────────────────────────
-
-    def load_data(self, obs: Observation[T]) -> T:
-        """Load payload for an observation. Thread-safe alternative to obs.data."""
-        backend = self._require_backend()
-        return cast("T", backend.load_data(obs.id))
-
-    # ── Write ─────────────────────────────────────────────────────────
-
-    def append(
-        self,
-        payload: T,
-        *,
-        ts: float | None = None,
-        pose: PoseLike | None = None,
-        tags: dict[str, Any] | None = None,
-        parent_id: int | None = None,
-    ) -> Observation[T]:
-        if ts is None and isinstance(payload, Timestamped):
-            ts = payload.ts
-        backend = self._require_backend()
-        return cast("Observation[T]", backend.do_append(payload, ts, pose, tags, parent_id))
-
-    # ── Temporal filters ──────────────────────────────────────────────
+    def _with_filter(self, f: Filter) -> Stream[T]:
+        return self._replace_query(filters=(*self._query.filters, f))
 
     def after(self, t: float) -> Stream[T]:
         return self._with_filter(AfterFilter(t))
@@ -174,618 +155,227 @@ class Stream(Generic[T]):
     def time_range(self, t1: float, t2: float) -> Stream[T]:
         return self._with_filter(TimeRangeFilter(t1, t2))
 
-    def at(self, t: float | Stream[Any], *, tolerance: float = 1.0) -> Stream[T]:
-        if isinstance(t, Stream):
-            t1, t2 = t.get_time_range()
-            return self._with_filter(TimeRangeFilter(t1 - tolerance, t2 + tolerance))
+    def at(self, t: float, tolerance: float = 1.0) -> Stream[T]:
         return self._with_filter(AtFilter(t, tolerance))
 
-    # ── Spatial filter ────────────────────────────────────────────────
-
-    def near(self, pose: PoseLike | Stream[Any], radius: float = 0.0) -> Stream[T]:
-        if isinstance(pose, Stream):
-            center, max_dist = pose.bounding_sphere()
-            return self._with_filter(NearFilter(center, max_dist + radius))
+    def near(self, pose: Any, radius: float) -> Stream[T]:
         return self._with_filter(NearFilter(pose, radius))
 
-    # ── Tag filter ────────────────────────────────────────────────────
+    def tags(self, **tags: Any) -> Stream[T]:
+        return self._with_filter(TagsFilter(tags))
 
-    def filter_tags(self, **tags: Any) -> Stream[T]:
-        return self._with_filter(TagsFilter(tuple(tags.items())))
-
-    # ── Ordering / pagination ─────────────────────────────────────────
-
-    def order_by(self, field: str, *, desc: bool = False) -> Stream[T]:
-        return self._clone(order_field=field, order_desc=desc)
+    def order_by(self, field: str, desc: bool = False) -> Stream[T]:
+        return self._replace_query(order_field=field, order_desc=desc)
 
     def limit(self, k: int) -> Stream[T]:
-        return self._clone(limit_val=k)
+        return self._replace_query(limit_val=k)
 
     def offset(self, n: int) -> Stream[T]:
-        return self._clone(offset_val=n)
+        return self._replace_query(offset_val=n)
 
-    # ── Transform ─────────────────────────────────────────────────────
+    def search(self, query: Embedding, k: int) -> Stream[T]:
+        """Return top-k observations by cosine similarity to *query*.
 
-    @overload
-    def transform(
-        self,
-        xf: Transformer[T, R],
-        *,
-        live: bool = ...,
-        backfill_only: bool = ...,
-    ) -> Stream[R]: ...
-
-    @overload
-    def transform(
-        self,
-        xf: Callable[[T], Any],
-        *,
-        live: bool = ...,
-        backfill_only: bool = ...,
-    ) -> Stream[Any]: ...
-
-    def transform(
-        self,
-        xf: Transformer[Any, Any] | Callable[..., Any],
-        *,
-        live: bool = False,
-        backfill_only: bool = False,
-    ) -> Stream[Any]:
-        from dimos.memory.transformer import PerItemTransformer, Transformer as TransformerABC
-
-        transformer: TransformerABC[Any, Any]
-        if not isinstance(xf, TransformerABC):
-            transformer = PerItemTransformer(xf)
-        else:
-            transformer = xf
-
-        return TransformStream(
-            source=self,
-            transformer=transformer,
-            live=live,
-            backfill_only=backfill_only,
-        )
-
-    # ── Materialize ───────────────────────────────────────────────────
-
-    def store(
-        self,
-        name: str | None = None,
-        payload_type: type | None = None,
-        session: Session | None = None,
-    ) -> Stream[T]:
-        # Already stored streams are a no-op
-        if self._backend is not None and name is None:
-            return self
-        raise TypeError(
-            "store() requires a session context. This stream is not associated with a session."
-        )
-
-    # ── Cross-stream lineage ──────────────────────────────────────────
-
-    def project_to(self, target: Stream[R]) -> Stream[R]:
-        """Follow parent_id lineage to project observations onto the target stream.
-
-        Returns a filtered *target* Stream containing only observations that are
-        ancestors of the current (source) query results.  The result is a normal
-        Stream — all chaining, pagination, and lazy loading work as usual.
+        The backend handles the actual computation. ListBackend does
+        brute-force cosine; SqliteBackend (future) pushes down to vec0.
         """
-        backend = self._require_backend()
-        target_backend = target._require_backend()
-        session = self._session
-        if session is None:
-            raise TypeError("project_to requires a session-backed stream")
+        return self._replace_query(search_vec=query, search_k=k)
 
-        source_table = backend.stream_name
-        target_table = target_backend.stream_name
+    def search_text(self, text: str) -> Stream[T]:
+        """Filter observations whose data contains *text*.
 
-        if source_table == target_table:
-            return self  # type: ignore[return-value]
+        ListBackend does case-insensitive substring match;
+        SqliteBackend (future) pushes down to FTS5.
+        """
+        return self._replace_query(search_text=text)
 
-        hops = session.resolve_lineage_chain(source_table, target_table)
+    # ── Functional API ──────────────────────────────────────────────
 
-        return target._with_filter(
-            LineageFilter(
-                source_table=source_table,
-                source_query=self._query,
-                hops=hops,
+    def filter(self, pred: Callable[[Observation[T]], bool]) -> Stream[T]:
+        """Filter by arbitrary predicate on the full Observation."""
+        return self._with_filter(PredicateFilter(pred))
+
+    def map(self, fn: Callable[[Observation[T]], Observation[R]]) -> Stream[Any]:
+        """Transform each observation's data via callable."""
+        return self.transform(FnTransformer(lambda obs: fn(obs)))
+
+    # ── Transform ───────────────────────────────────────────────────
+
+    def transform(
+        self,
+        xf: Transformer[T, R] | Callable[[Iterator[Observation[T]]], Iterator[Observation[R]]],
+    ) -> Stream[R]:
+        """Wrap this stream with a transformer. Returns a new lazy Stream.
+
+        Accepts a ``Transformer`` subclass or a bare callable / generator
+        function with the same ``Iterator[Obs] → Iterator[Obs]`` signature::
+
+            def detect(upstream):
+                for obs in upstream:
+                    yield obs.derive(data=run_detector(obs.data))
+
+            images.transform(detect).save(detections)
+        """
+        if not isinstance(xf, Transformer):
+            xf = FnIterTransformer(xf)
+        return Stream(source=self, xf=xf, query=StreamQuery())
+
+    # ── Live mode ───────────────────────────────────────────────────
+
+    def live(self, buffer: BackpressureBuffer[Observation[Any]] | None = None) -> Stream[T]:
+        """Return a stream whose iteration never ends — backfill then live tail.
+
+        All backends support live mode via their built-in ``LiveChannel``.
+        Call .live() before .transform(), not after.
+
+        Default buffer: KeepLast(). The backend handles subscription, dedup,
+        and backpressure — how it does so is its business.
+        """
+        if isinstance(self._source, Stream):
+            raise TypeError(
+                "Cannot call .live() on a transform stream. "
+                "Call .live() on the source stream, then .transform()."
             )
-        )
+        buf = buffer if buffer is not None else KeepLast()
+        return self._replace_query(live_buffer=buf)
 
-    # ── List-like interface ────────────────────────────────────────────
+    # ── Save ─────────────────────────────────────────────────────────
 
-    def __iter__(self) -> Iterator[Observation[T]]:
-        for page in self.fetch_pages():
-            yield from page
+    def save(self, target: Stream[T]) -> Stream[T]:
+        """Sync terminal: iterate self, append each obs to target's backend.
 
-    def __len__(self) -> int:
-        return self.count()
+        Returns the target stream for continued querying.
+        """
+        if isinstance(target._source, Stream):
+            raise TypeError("Cannot save to a transform stream. Target must be backend-backed.")
+        backend = target._source
+        for obs in self:
+            backend.append(obs)
+        return target
 
-    @overload
-    def __getitem__(self, index: int) -> Observation[T]: ...
+    # ── Terminals ───────────────────────────────────────────────────
 
-    @overload
-    def __getitem__(self, index: slice) -> list[Observation[T]]: ...
-
-    def __getitem__(self, index: int | slice) -> Observation[T] | list[Observation[T]]:
-        if isinstance(index, int):
-            if index < 0:
-                # Negative index: need count to resolve
-                n = self.count()
-                index = n + index
-                if index < 0:
-                    raise IndexError("stream index out of range")
-            results = self.offset(index).limit(1).fetch()
-            if not results:
-                raise IndexError("stream index out of range")
-            return results[0]
-        # Slice
-        start, stop, step = index.indices(self.count())
-        s = self.offset(start).limit(stop - start)
-        results = s.fetch()
-        if step != 1:
-            return list(results)[::step]
-        return list(results)
-
-    def __bool__(self) -> bool:
-        return self.exists()
-
-    # ── Terminals ─────────────────────────────────────────────────────
-
-    def fetch(self) -> ObservationSet[T]:
-        backend = self._require_backend()
-        results = backend.execute_fetch(self._query)
-        return ObservationSet(
-            cast("list[Observation[T]]", results),
-            session=self._session,
-            payload_type=self._payload_type,
-        )
-
-    def fetch_pages(self, batch_size: int = 128) -> Iterator[list[Observation[T]]]:
-        offset = self._query.offset_val or 0
-        total_limit = self._query.limit_val
-        emitted = 0
-        while True:
-            page_size = batch_size
-            if total_limit is not None:
-                remaining = total_limit - emitted
-                if remaining <= 0:
-                    break
-                page_size = min(batch_size, remaining)
-            q = StreamQuery(
-                filters=self._query.filters,
-                order_field=self._query.order_field or "id",
-                order_desc=self._query.order_desc,
-                limit_val=page_size,
-                offset_val=offset,
+    def fetch(self) -> list[Observation[T]]:
+        """Materialize all observations into a list."""
+        if self.is_live():
+            raise TypeError(
+                ".fetch() on a live stream would block forever. "
+                "Use .drain() or .save(target) instead."
             )
-            backend = self._require_backend()
-            page = backend.execute_fetch(q)
-            if not page:
-                break
-            yield cast("list[Observation[T]]", page)
-            emitted += len(page)
-            if len(page) < page_size:
-                break
-            offset += len(page)
+        return list(self)
 
     def first(self) -> Observation[T]:
-        results = self.limit(1).fetch()
-        if not results:
-            raise LookupError("No matching observation")
-        return results[0]
+        """Return the first matching observation."""
+        it = iter(self.limit(1))
+        try:
+            return next(it)
+        except StopIteration:
+            raise LookupError("No matching observation") from None
 
     def last(self) -> Observation[T]:
-        results = self.order_by("ts", desc=True).limit(1).fetch()
-        if not results:
-            raise LookupError("No matching observation")
-        return results[0]
+        """Return the last matching observation (by timestamp)."""
+        return self.order_by("ts", desc=True).first()
 
     def count(self) -> int:
-        backend = self._require_backend()
-        return backend.execute_count(self._query)
+        """Count matching observations."""
+        if isinstance(self._source, Backend):
+            return self._source.count(self._query)
+        if self.is_live():
+            raise TypeError(".count() on a live transform stream would block forever.")
+        return sum(1 for _ in self)
 
     def exists(self) -> bool:
-        return self.count() > 0
-
-    def delete(self) -> None:
-        """Drop this stream and all associated storage."""
-        if self._session is None:
-            raise TypeError("Cannot delete: no session available.")
-        backend = self._require_backend()
-        self._session.delete_stream(backend.stream_name)
+        """Check if any matching observation exists."""
+        return next(iter(self.limit(1)), None) is not None
 
     def get_time_range(self) -> tuple[float, float]:
-        return (self.first().ts, self.last().ts)
-
-    def bounding_sphere(self) -> tuple[Any, float]:
-        """Return (centroid_pose, max_distance_from_centroid) for all poses."""
-        xs: list[float] = []
-        ys: list[float] = []
-        zs: list[float] = []
-        for obs in self:
-            if obs.pose is None:
-                continue
-            p = obs.pose.position
-            xs.append(p.x)
-            ys.append(p.y)
-            zs.append(p.z)
-        if not xs:
-            raise ValueError("No observations with poses in this stream")
-        cx, cy, cz = sum(xs) / len(xs), sum(ys) / len(ys), sum(zs) / len(zs)
-        max_dist = max(
-            ((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) ** 0.5
-            for x, y, z in zip(xs, ys, zs, strict=True)
-        )
-        from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
-
-        center = PoseStamped(position=[cx, cy, cz])
-        return center, max_dist
+        """Return (min_ts, max_ts) for matching observations."""
+        first = self.first()
+        last = self.last()
+        return (first.ts, last.ts)
 
     def summary(self) -> str:
+        """Return a short human-readable summary: count, time range, duration."""
         from datetime import datetime, timezone
 
-        t = rich_text(self)
         n = self.count()
         if n == 0:
-            t.append(": ", style="dim")
-            t.append("empty", style="italic dim")
-            return render_text(t)
-        t0, t1 = self.get_time_range()
+            return f"{self}: empty"
+
+        (t0, t1) = self.get_time_range()
+
         fmt = "%Y-%m-%d %H:%M:%S"
         dt0 = datetime.fromtimestamp(t0, tz=timezone.utc).strftime(fmt)
         dt1 = datetime.fromtimestamp(t1, tz=timezone.utc).strftime(fmt)
         dur = t1 - t0
-        t.append(": ", style="dim")
-        t.append(f"{n}", style="bold white")
-        t.append(" items, ", style="dim")
-        t.append(dt0, style="bright_blue")
-        t.append(" — ", style="dim")
-        t.append(dt1, style="bright_blue")
-        t.append(f" ({dur:.1f}s)", style="dim yellow")
-        return render_text(t)
+        return f"{self}: {n} items, {dt0} — {dt1} ({dur:.1f}s)"
 
-    # ── Reactive ──────────────────────────────────────────────────────
+    def drain(self) -> int:
+        """Consume all observations, discarding results. Returns count consumed.
 
-    def observable(self) -> Observable[Observation[T]]:  # type: ignore[type-arg]
-        backend = self._require_backend()
-        raw: Observable[Observation[T]] = backend.appended_subject  # type: ignore[assignment]
-        if not self._query.filters:
-            return raw
-        active = [
-            f
-            for f in self._query.filters
-            if not isinstance(f, (EmbeddingSearchFilter, LineageFilter))
-        ]
-
-        def _check(o: Observation[T]) -> bool:
-            return all(f.matches(o) for f in active)
-
-        return raw.pipe(ops.filter(_check))
-
-    def subscribe(self, on_next: Callable[[Observation[T]], None]) -> Disposable:
-        return self.observable().subscribe(on_next=on_next)
-
-
-class EmbeddingStream(Stream[T]):
-    """Stream with a vector index. Adds search_embedding()."""
-
-    _embedding_model: EmbeddingModel | None
-
-    def __init__(
-        self,
-        backend: StreamBackend | None = None,
-        *,
-        query: StreamQuery | None = None,
-        session: Session | None = None,
-        embedding_model: EmbeddingModel | None = None,
-        payload_type: type | None = None,
-    ) -> None:
-        super().__init__(backend=backend, query=query, session=session, payload_type=payload_type)
-        self._embedding_model = embedding_model
-
-    def _require_model(self) -> EmbeddingModel:
-        if self._embedding_model is None:
-            raise TypeError(
-                "This embedding stream has no model reference. "
-                "Pass a str/image only on streams created via EmbeddingTransformer, "
-                "or search with a pre-computed Embedding / list[float]."
-            )
-        return self._embedding_model
-
-    def search_embedding(
-        self,
-        query: Embedding | list[float] | str | Any,
-        *,
-        k: int,
-        model: EmbeddingModel | None = None,
-    ) -> EmbeddingStream[T]:
-        """Search by vector similarity.
-
-        Accepts pre-computed embeddings, raw float lists, text strings, or
-        images/other objects.  Text and non-vector inputs are auto-embedded
-        using the model that created this stream (or the ``model`` override).
-
-        Returns an EmbeddingStream — use ``.project_to(source)`` to get
-        results in the source stream's type, or ``.fetch()`` for
-        ``EmbeddingObservation`` with ``.similarity`` scores.
+        Use for side-effect pipelines (e.g. live embed-and-store) where you
+        don't need to collect results in memory.
         """
-        from dimos.models.embedding.base import Embedding as EmbeddingCls
+        n = 0
+        for _ in self:
+            n += 1
+        return n
 
-        resolve = model or self._embedding_model
-        label: str | None = None
-        if isinstance(query, str):
-            if resolve is None:
-                raise TypeError(
-                    "No embedding model available. Pass model= or use a "
-                    "pre-computed Embedding / list[float]."
-                )
-            label = query
-            emb = resolve.embed_text(query)
-            if isinstance(emb, list):
-                emb = emb[0]
-            query = emb
+    # ── Reactive ─────────────────────────────────────────────────────
 
-        if isinstance(query, EmbeddingCls):
-            vec = query.to_numpy().tolist()
-        elif isinstance(query, list):
-            vec = list(query)
+    def observable(self) -> reactivex.Observable[Observation[T]]:
+        """Convert this stream to an RxPY Observable.
+
+        Iteration is scheduled on the dimos thread pool so subscribe() never
+        blocks the calling thread.
+        """
+        import reactivex
+        import reactivex.operators as ops
+
+        from dimos.utils.threadpool import get_scheduler
+
+        return reactivex.from_iterable(self).pipe(
+            ops.subscribe_on(get_scheduler()),
+        )
+
+    def subscribe(
+        self,
+        on_next: Callable[[Observation[T]], None] | ObserverBase[Observation[T]] | None = None,
+        on_error: Callable[[Exception], None] | None = None,
+        on_completed: Callable[[], None] | None = None,
+    ) -> DisposableBase:
+        """Subscribe to this stream as an RxPY Observable."""
+        return self.observable().subscribe(  # type: ignore[call-overload]
+            on_next=on_next,
+            on_error=on_error,
+            on_completed=on_completed,
+        )
+
+    # ── Write ───────────────────────────────────────────────────────
+
+    def append(
+        self,
+        payload: T,
+        *,
+        ts: float | None = None,
+        pose: Any | None = None,
+        tags: dict[str, Any] | None = None,
+        embedding: Embedding | None = None,
+    ) -> Observation[T]:
+        """Append to the backing store. Only works if source is a Backend."""
+        if isinstance(self._source, Stream):
+            raise TypeError("Cannot append to a transform stream. Append to the source stream.")
+        _ts = ts if ts is not None else time.time()
+        _tags = tags or {}
+        if embedding is not None:
+            obs: Observation[T] = EmbeddedObservation(
+                id=-1,
+                ts=_ts,
+                pose=pose,
+                tags=_tags,
+                _data=payload,
+                embedding=embedding,
+            )
         else:
-            # Assume embeddable object (Image, etc.)
-            if resolve is None:
-                raise TypeError(
-                    "No embedding model available. Pass model= or use a "
-                    "pre-computed Embedding / list[float]."
-                )
-            label = type(query).__name__
-            emb = resolve.embed(query)
-            if isinstance(emb, list):
-                emb = emb[0]
-            query = emb
-            vec = query.to_numpy().tolist()
-
-        return self._with_filter(EmbeddingSearchFilter(vec, k, label=label))
-
-    def fetch(self) -> ObservationSet[T]:  # type: ignore[override]
-        backend = self._require_backend()
-        results = backend.execute_fetch(self._query)
-        return ObservationSet(
-            cast("list[Observation[T]]", results),
-            session=self._session,
-            payload_type=self._payload_type,
-        )
-
-    def first(self) -> EmbeddingObservation:  # type: ignore[override]
-        results = self.limit(1).fetch()
-        if not results:
-            raise LookupError("No matching observation")
-        return results[0]  # type: ignore[return-value]
-
-    def last(self) -> EmbeddingObservation:  # type: ignore[override]
-        results = self.order_by("ts", desc=True).limit(1).fetch()
-        if not results:
-            raise LookupError("No matching observation")
-        return results[0]  # type: ignore[return-value]
-
-
-class TextStream(Stream[T]):
-    """Stream with an FTS5 index. Adds search_text()."""
-
-    def search_text(self, text: str, *, k: int | None = None) -> TextStream[T]:
-        return self._with_filter(TextSearchFilter(text, k))
-
-
-class TransformStream(Stream[R]):
-    """In-memory stream produced by .transform(). Backed by ListBackend."""
-
-    def __init__(
-        self,
-        source: Stream[Any],
-        transformer: Transformer[Any, R],
-        *,
-        live: bool = False,
-        backfill_only: bool = False,
-    ) -> None:
-        backend = ListBackend([], name="<transform>")
-        super().__init__(backend=backend, session=source._session)
-        self._source = source
-        self._transformer = transformer
-        self._live = live
-        self._backfill_only = backfill_only
-        self._materialized = False
-
-    def _materialize(self) -> None:
-        """Run backfill if not yet done."""
-        if self._materialized:
-            return
-        self._materialized = True
-        if self._transformer.supports_backfill and not self._live:
-            self._transformer.process(self._source, self)
-
-    def _require_backend(self) -> StreamBackend:
-        self._materialize()
-        return super()._require_backend()
-
-    def __repr__(self) -> str:
-        return rich_text(self).plain
-
-    def __str__(self) -> str:
-        return render_text(rich_text(self))
-
-    def fetch(self) -> ObservationSet[R]:
-        self._materialize()
-        backend = cast("ListBackend", self._backend)
-        return ObservationSet(
-            cast("list[Observation[R]]", list(backend._observations)),
-            session=self._session,
-            payload_type=self._transformer.output_type,
-        )
-
-    def store(
-        self,
-        name: str | None = None,
-        payload_type: type | None = None,
-        session: Session | None = None,
-    ) -> Stream[R]:
-        resolved = session or self._source._session
-        if resolved is None:
-            raise TypeError(
-                "Cannot store: no session available. "
-                "Either use session.stream() to create the source, "
-                "or pass session= to store()."
-            )
-        if name is None:
-            raise TypeError("store() requires a name for transform outputs")
-        resolved_type = payload_type or self._transformer.output_type
-        return resolved.materialize_transform(
-            name=name,
-            source=self._source,
-            transformer=self._transformer,
-            payload_type=resolved_type,
-            live=self._live,
-            backfill_only=self._backfill_only,
-        )
-
-
-class ListBackend:
-    """In-memory backend that evaluates StreamQuery filters in Python."""
-
-    def __init__(self, observations: list[Observation[Any]], name: str = "<memory>") -> None:
-        self._observations = observations
-        self._name = name
-        self._next_id = max((o.id for o in observations), default=-1) + 1
-        from reactivex.subject import Subject
-
-        self._subject: Subject[Observation[Any]] = Subject()  # type: ignore[type-arg]
-
-    def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]:
-        results = list(self._observations)
-
-        # Apply non-embedding filters
-        for f in query.filters:
-            if isinstance(f, (EmbeddingSearchFilter, LineageFilter)):
-                continue
-            results = [obs for obs in results if f.matches(obs)]
-
-        # Embedding top-k pass (cosine similarity)
-        emb_filters = [f for f in query.filters if isinstance(f, EmbeddingSearchFilter)]
-        if emb_filters:
-            ef = emb_filters[0]
-            query_vec = np.array(ef.query, dtype=np.float32)
-            query_norm = np.linalg.norm(query_vec)
-            if query_norm > 0:
-                scored = []
-                for obs in results:
-                    if isinstance(obs, EmbeddingObservation):
-                        obs_vec = obs.embedding.to_numpy()
-                    else:
-                        continue
-                    obs_norm = np.linalg.norm(obs_vec)
-                    if obs_norm > 0:
-                        sim = float(np.dot(query_vec, obs_vec) / (query_norm * obs_norm))
-                    else:
-                        sim = 0.0
-                    scored.append((sim, obs))
-                scored.sort(key=lambda x: x[0], reverse=True)
-                results = [obs for _, obs in scored[: ef.k]]
-
-        # Ordering
-        if query.order_field:
-            key = query.order_field
-            results.sort(
-                key=lambda obs: getattr(obs, key) if getattr(obs, key, None) is not None else 0,
-                reverse=query.order_desc,
-            )
-
-        # Offset / limit
-        if query.offset_val:
-            results = results[query.offset_val :]
-        if query.limit_val is not None:
-            results = results[: query.limit_val]
-
-        return results
-
-    def execute_count(self, query: StreamQuery) -> int:
-        return len(self.execute_fetch(query))
-
-    def load_data(self, row_id: int) -> Any:
-        for obs in self._observations:
-            if obs.id == row_id:
-                return obs.data
-        raise LookupError(f"No observation with id={row_id}")
-
-    def do_append(
-        self,
-        payload: Any,
-        ts: float | None,
-        pose: Any | None,
-        tags: dict[str, Any] | None,
-        parent_id: int | None = None,
-    ) -> Observation[Any]:
-        obs: Observation[Any] = Observation(
-            id=self._next_id,
-            ts=ts if ts is not None else time.time(),
-            pose=pose,
-            tags=tags or {},
-            parent_id=parent_id,
-            _data=payload,
-        )
-        self._next_id += 1
-        self._observations.append(obs)
-        self._subject.on_next(obs)
-        return obs
-
-    @property
-    def appended_subject(self) -> Subject[Observation[Any]]:  # type: ignore[type-arg]
-        return self._subject
-
-    @property
-    def stream_name(self) -> str:
-        return self._name
-
-
-class ObservationSet(Stream[T]):
-    """Materialized result set — list-like + stream-like.
-
-    Holds Observation objects with lazy _data_loader closures.
-    Metadata is in memory, payload BLOBs stay in DB until .data access.
-    """
-
-    def __init__(
-        self,
-        observations: list[Observation[T]],
-        *,
-        session: Session | None = None,
-        payload_type: type | None = None,
-    ) -> None:
-        self._observations = observations
-        backend = ListBackend(cast("list[Observation[Any]]", observations))
-        super().__init__(backend=backend, session=session, payload_type=payload_type)
-
-    def _clone(self, **overrides: Any) -> Stream[T]:  # type: ignore[override]
-        """Downgrade to plain Stream — don't carry _observations through chaining."""
-        base: Stream[T] = Stream(
-            backend=self._backend, session=self._session, payload_type=self._payload_type
-        )
-        base._query = self._query
-        return base._clone(**overrides)
-
-    # ── List-like interface ──────────────────────────────────────────
-
-    def __len__(self) -> int:
-        return len(self._observations)
-
-    @overload
-    def __getitem__(self, index: int) -> Observation[T]: ...
-
-    @overload
-    def __getitem__(self, index: slice) -> list[Observation[T]]: ...
-
-    def __getitem__(self, index: int | slice) -> Observation[T] | list[Observation[T]]:
-        return self._observations[index]
-
-    def __iter__(self) -> Iterator[Observation[T]]:
-        return iter(self._observations)
-
-    def __bool__(self) -> bool:
-        return len(self._observations) > 0
+            obs = Observation(id=-1, ts=_ts, pose=pose, tags=_tags, _data=payload)
+        return self._source.append(obs)
