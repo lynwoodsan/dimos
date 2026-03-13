@@ -33,7 +33,7 @@ T = TypeVar("T")
 
 
 @runtime_checkable
-class MetadataStore(Protocol[T]):
+class ObservationStore(Protocol[T]):
     """Core metadata storage and query engine for observations.
 
     Handles only observation metadata storage, query pushdown, and count.

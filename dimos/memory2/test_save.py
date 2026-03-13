@@ -20,7 +20,7 @@ import pytest
 
 from dimos.memory2.backend import Backend
 from dimos.memory2.codecs.pickle import PickleCodec
-from dimos.memory2.impl.memory import ListMetadataStore
+from dimos.memory2.impl.memory import ListObservationStore
 from dimos.memory2.stream import Stream
 from dimos.memory2.transform import FnTransformer
 from dimos.memory2.type.backend import Notifier
@@ -30,7 +30,7 @@ from dimos.memory2.type.observation import Observation
 
 
 def _make_backend(name: str = "test") -> Backend[int]:
-    return Backend(metadata_store=ListMetadataStore[int](name), codec=PickleCodec())
+    return Backend(metadata_store=ListObservationStore[int](name), codec=PickleCodec())
 
 
 def make_stream(n: int = 5, start_ts: float = 0.0) -> Stream[int]:

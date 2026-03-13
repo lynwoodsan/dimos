@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-class ListMetadataStore(Generic[T]):
+class ListObservationStore(Generic[T]):
     """In-memory metadata store for experimentation. Thread-safe."""
 
     def __init__(self, name: str = "<memory>") -> None:
@@ -80,7 +80,7 @@ class MemoryStore(Store):
     def _create_backend(
         self, name: str, payload_type: type[Any] | None = None, **config: Any
     ) -> Backend[Any]:
-        metadata_store: ListMetadataStore[Any] = ListMetadataStore(name)
+        metadata_store: ListObservationStore[Any] = ListObservationStore(name)
 
         # Resolve codec
         raw_codec = config.pop("codec", None)

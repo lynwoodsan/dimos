@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Concrete composite Backend that orchestrates MetadataStore + BlobStore + VectorStore + Notifier."""
+"""Concrete composite Backend that orchestrates ObservationStore + BlobStore + VectorStore + Notifier."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from reactivex.abc import DisposableBase
 
     from dimos.memory2.buffer import BackpressureBuffer
-    from dimos.memory2.type.backend import BlobStore, MetadataStore, Notifier, VectorStore
+    from dimos.memory2.type.backend import BlobStore, Notifier, ObservationStore, VectorStore
     from dimos.memory2.type.filter import StreamQuery
     from dimos.memory2.type.observation import Observation
 
@@ -41,13 +41,13 @@ class Backend(Generic[T]):
 
     This is a concrete class — NOT a protocol. All shared orchestration logic
     (encode → insert → store blob → index vector → notify) lives here,
-    eliminating duplication between ListMetadataStore and SqliteMetadataStore.
+    eliminating duplication between ListObservationStore and SqliteObservationStore.
     """
 
     def __init__(
         self,
         *,
-        metadata_store: MetadataStore[T],
+        metadata_store: ObservationStore[T],
         codec: Codec[Any],
         blob_store: BlobStore | None = None,
         vector_store: VectorStore | None = None,
@@ -104,7 +104,7 @@ class Backend(Generic[T]):
                 if emb is not None:
                     self.vector_store.put(self.name, row_id, emb)
 
-            # Commit if the metadata store supports it (e.g. SqliteMetadataStore)
+            # Commit if the metadata store supports it (e.g. SqliteObservationStore)
             if hasattr(self.metadata_store, "commit"):
                 self.metadata_store.commit()
         except BaseException:

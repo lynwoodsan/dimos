@@ -71,10 +71,10 @@ results = images.transform(Embed(clip)) \
 
 The Backend composite decides how to route storage based on what it sees:
 
-- `append(image, ts=now, embedding=vec)` → backend routes: blob via BlobStore, vector via VectorStore, metadata via MetadataStore
+- `append(image, ts=now, embedding=vec)` → backend routes: blob via BlobStore, vector via VectorStore, metadata via ObservationStore
 - `append(image, ts=now)` → blob + metadata only (no embedding)
-- `ListMetadataStore`: stores metadata in-memory, brute-force cosine via MemoryVectorStore
-- `SqliteMetadataStore`: metadata in SQLite, vec0 side table for fast ANN search via SqliteVectorStore
+- `ListObservationStore`: stores metadata in-memory, brute-force cosine via MemoryVectorStore
+- `SqliteObservationStore`: metadata in SQLite, vec0 side table for fast ANN search via SqliteVectorStore
 - Future backends (Postgres/pgvector, Qdrant, etc.) do their thing
 
 Search is pushed down to the VectorStore. Stream just passes `.search()` calls through.

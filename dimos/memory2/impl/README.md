@@ -1,24 +1,24 @@
-# impl — MetadataStore implementations
+# impl — ObservationStore implementations
 
-Metadata index backends for memory. Each index implements the `MetadataStore` protocol to provide observation metadata storage with query support. The concrete `Backend` class handles orchestration (blob, vector, live) on top of any index.
+Metadata index backends for memory. Each index implements the `ObservationStore` protocol to provide observation metadata storage with query support. The concrete `Backend` class handles orchestration (blob, vector, live) on top of any index.
 
 ## Existing implementations
 
-| MetadataStore           | File        | Status   | Storage                             |
+| ObservationStore           | File        | Status   | Storage                             |
 |-----------------|-------------|----------|-------------------------------------|
-| `ListMetadataStore`     | `memory.py` | Complete | In-memory lists, brute-force search |
-| `SqliteMetadataStore`   | `sqlite.py` | Complete | SQLite (WAL, R*Tree, vec0)          |
+| `ListObservationStore`     | `memory.py` | Complete | In-memory lists, brute-force search |
+| `SqliteObservationStore`   | `sqlite.py` | Complete | SQLite (WAL, R*Tree, vec0)          |
 
 ## Writing a new index
 
-### 1. Implement the MetadataStore protocol
+### 1. Implement the ObservationStore protocol
 
 ```python
-from dimos.memory2.type.backend import MetadataStore
+from dimos.memory2.type.backend import ObservationStore
 from dimos.memory2.type.filter import StreamQuery
 from dimos.memory2.type.observation import Observation
 
-class MyMetadataStore(Generic[T]):
+class MyObservationStore(Generic[T]):
     def __init__(self, name: str) -> None:
         self._name = name
 
@@ -53,7 +53,7 @@ class MyMetadataStore(Generic[T]):
         ...
 ```
 
-`MetadataStore` is a `@runtime_checkable` Protocol — no base class needed, just implement the methods.
+`ObservationStore` is a `@runtime_checkable` Protocol — no base class needed, just implement the methods.
 
 ### 2. Create a Store subclass
 
@@ -66,7 +66,7 @@ class MyStore(Store):
     def _create_backend(
         self, name: str, payload_type: type | None = None, **config: Any
     ) -> Backend:
-        index = MyMetadataStore(name)
+        index = MyObservationStore(name)
         codec = codec_for(payload_type)
         return Backend(
             index=index,
@@ -104,7 +104,7 @@ Use `pytest.mark.xfail` for features not yet implemented — the grid test cover
 
 The index must handle the `StreamQuery` metadata fields. Vector search and blob loading are handled by the `Backend` composite — the index never needs to deal with them.
 
-`StreamQuery.apply(iterator)` provides a complete Python-side execution path — filters, text search, vector search, ordering, offset/limit — all as in-memory operations. MetadataStorees can use it in three ways:
+`StreamQuery.apply(iterator)` provides a complete Python-side execution path — filters, text search, vector search, ordering, offset/limit — all as in-memory operations. ObservationStorees can use it in three ways:
 
 **Full delegation** — simplest, good enough for in-memory indexes:
 ```python

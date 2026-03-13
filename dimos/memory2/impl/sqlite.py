@@ -227,10 +227,10 @@ def _compile_count(
     return (sql, params, python_filters)
 
 
-# ── SqliteMetadataStore ────────────────────────────────────────────────
+# ── SqliteObservationStore ────────────────────────────────────────────────
 
 
-class SqliteMetadataStore(Generic[T]):
+class SqliteObservationStore(Generic[T]):
     """SQLite-backed metadata store for a single stream (table).
 
     Handles only metadata storage and query pushdown.
@@ -347,7 +347,7 @@ class SqliteMetadataStore(Generic[T]):
 
     def query(self, q: StreamQuery) -> Iterator[Observation[T]]:
         if q.search_text is not None:
-            raise NotImplementedError("search_text is not supported by SqliteMetadataStore")
+            raise NotImplementedError("search_text is not supported by SqliteObservationStore")
 
         join = self._join_blobs
         sql, params, python_filters = _compile_query(q, self._name, join_blob=join)
@@ -528,7 +528,7 @@ class SqliteStore(Store):
         # Detect if blob_store shares the same SQLite connection (for eager JOIN)
         blob_store_conn_match = isinstance(bs, SqliteBlobStore) and bs._conn is backend_conn
 
-        metadata_store: SqliteMetadataStore[Any] = SqliteMetadataStore(
+        metadata_store: SqliteObservationStore[Any] = SqliteObservationStore(
             backend_conn,
             name,
             codec,
