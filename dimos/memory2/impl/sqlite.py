@@ -227,11 +227,11 @@ def _compile_count(
     return (sql, params, python_filters)
 
 
-# ── SqliteIndex ────────────────────────────────────────────────
+# ── SqliteMetadataStore ────────────────────────────────────────────────
 
 
-class SqliteIndex(Generic[T]):
-    """SQLite-backed metadata index for a single stream (table).
+class SqliteMetadataStore(Generic[T]):
+    """SQLite-backed metadata store for a single stream (table).
 
     Handles only metadata storage and query pushdown.
     Blob/vector/live orchestration is handled by Backend.
@@ -347,7 +347,7 @@ class SqliteIndex(Generic[T]):
 
     def query(self, q: StreamQuery) -> Iterator[Observation[T]]:
         if q.search_text is not None:
-            raise NotImplementedError("search_text is not supported by SqliteIndex")
+            raise NotImplementedError("search_text is not supported by SqliteMetadataStore")
 
         join = self._join_blobs
         sql, params, python_filters = _compile_query(q, self._name, join_blob=join)
@@ -528,7 +528,7 @@ class SqliteStore(Store):
         # Detect if blob_store shares the same SQLite connection (for eager JOIN)
         blob_store_conn_match = isinstance(bs, SqliteBlobStore) and bs._conn is backend_conn
 
-        index: SqliteIndex[Any] = SqliteIndex(
+        metadata_store: SqliteMetadataStore[Any] = SqliteMetadataStore(
             backend_conn,
             name,
             codec,
@@ -537,7 +537,7 @@ class SqliteStore(Store):
         )
 
         backend: Backend[Any] = Backend(
-            index=index,
+            metadata_store=metadata_store,
             codec=codec,
             blob_store=bs,
             vector_store=vs,
@@ -546,7 +546,7 @@ class SqliteStore(Store):
         )
         from reactivex.disposable import Disposable
 
-        self.register_disposables(Disposable(action=lambda: index.stop()))
+        self.register_disposables(Disposable(action=lambda: metadata_store.stop()))
         return backend
 
     def list_streams(self) -> list[str]:
@@ -565,5 +565,5 @@ class SqliteStore(Store):
         self._registry_conn.commit()
 
     def stop(self) -> None:
-        super().stop()  # disposes owned index connections
+        super().stop()  # disposes owned metadata store connections
         self._registry_conn.close()

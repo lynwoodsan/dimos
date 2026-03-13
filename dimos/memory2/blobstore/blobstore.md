@@ -42,7 +42,7 @@ CREATE TABLE "{stream}_blob" (id INTEGER PRIMARY KEY, data BLOB NOT NULL)
 
 **External use** (separate db): user creates a separate connection and passes it. User manages that connection's lifecycle.
 
-**JOIN optimization**: when `eager_blobs=True` and the blob store shares the same connection as the index, `SqliteIndex` can optimize with a JOIN instead of separate queries:
+**JOIN optimization**: when `eager_blobs=True` and the blob store shares the same connection as the index, `SqliteMetadataStore` can optimize with a JOIN instead of separate queries:
 
 ```sql
 SELECT m.id, m.ts, m.pose, m.tags, b.data
@@ -75,7 +75,7 @@ images = store.stream("images", Image, blob_store=file_blobs)           # overri
 ## Files
 
 ```
-type/backend.py       BlobStore ABC (alongside Index, Notifier, VectorStore)
+type/backend.py       BlobStore ABC (alongside MetadataStore, Notifier, VectorStore)
 blobstore/
   blobstore.md        this file
   __init__.py          re-exports BlobStore, FileBlobStore, SqliteBlobStore

@@ -14,7 +14,7 @@
 
 from dimos.memory2.type.backend import (
     BlobStore,
-    Index,
+    MetadataStore,
     Notifier,
     VectorStore,
 )
@@ -44,7 +44,7 @@ __all__ = [
     "BlobStore",
     "EmbeddedObservation",
     "Filter",
-    "Index",
+    "MetadataStore",
     "NearFilter",
     "Notifier",
     "Observation",

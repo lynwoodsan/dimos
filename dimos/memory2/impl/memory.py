@@ -30,8 +30,8 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-class ListIndex(Generic[T]):
-    """In-memory index for experimentation. Thread-safe."""
+class ListMetadataStore(Generic[T]):
+    """In-memory metadata store for experimentation. Thread-safe."""
 
     def __init__(self, name: str = "<memory>") -> None:
         self._name = name
@@ -80,7 +80,7 @@ class MemoryStore(Store):
     def _create_backend(
         self, name: str, payload_type: type[Any] | None = None, **config: Any
     ) -> Backend[Any]:
-        index: ListIndex[Any] = ListIndex(name)
+        metadata_store: ListMetadataStore[Any] = ListMetadataStore(name)
 
         # Resolve codec
         raw_codec = config.pop("codec", None)
@@ -100,7 +100,7 @@ class MemoryStore(Store):
             codec = codec_for(payload_type)
 
         backend: Backend[Any] = Backend(
-            index=index,
+            metadata_store=metadata_store,
             codec=codec,
             blob_store=config.get("blob_store"),
             vector_store=config.get("vector_store"),

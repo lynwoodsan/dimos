@@ -33,7 +33,7 @@ T = TypeVar("T")
 
 
 @runtime_checkable
-class Index(Protocol[T]):
+class MetadataStore(Protocol[T]):
     """Core metadata storage and query engine for observations.
 
     Handles only observation metadata storage, query pushdown, and count.
@@ -118,7 +118,7 @@ class VectorStore(Resource):
     search strategies (brute-force, vec0, FAISS, Qdrant) independently.
 
     Same shape as BlobStore: ``put`` / ``search`` / ``delete``, keyed
-    by ``(stream, observation_id)``.  Index creation is lazy — the
+    by ``(stream, observation_id)``.  Vector index creation is lazy — the
     first ``put`` for a stream determines dimensionality.
     """
 

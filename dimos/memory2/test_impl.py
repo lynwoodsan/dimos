@@ -193,7 +193,7 @@ class TestStoreBasic:
         s.append("motor fault")
         s.append("temperature ok")
 
-        # SqliteIndex blocks search_text to prevent full table scans
+        # SqliteMetadataStore blocks search_text to prevent full table scans
         try:
             results = s.search_text("motor").fetch()
         except NotImplementedError:

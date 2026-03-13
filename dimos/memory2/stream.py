@@ -176,16 +176,16 @@ class Stream(Resource, Generic[T]):
     def search(self, query: Embedding, k: int) -> Stream[T]:
         """Return top-k observations by cosine similarity to *query*.
 
-        The backend handles the actual computation. ListIndex does
-        brute-force cosine; SqliteIndex pushes down to vec0.
+        The backend handles the actual computation. ListMetadataStore does
+        brute-force cosine; SqliteMetadataStore pushes down to vec0.
         """
         return self._replace_query(search_vec=query, search_k=k)
 
     def search_text(self, text: str) -> Stream[T]:
         """Filter observations whose data contains *text*.
 
-        ListIndex does case-insensitive substring match;
-        SqliteIndex (future) pushes down to FTS5.
+        ListMetadataStore does case-insensitive substring match;
+        SqliteMetadataStore (future) pushes down to FTS5.
         """
         return self._replace_query(search_text=text)
 

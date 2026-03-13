@@ -69,8 +69,7 @@ class Store(Configurable[StoreConfig], CompositeResource):
         on top of the store-level defaults from :class:`StoreConfig`.
         """
         if name not in self._streams:
-            resolved = {k: v for k, v in vars(self.config).items() if v is not None}
-            resolved.update({k: v for k, v in overrides.items() if v is not None})
+            resolved = {**self.config.model_dump(exclude_none=True), **overrides}
             backend = self._create_backend(name, payload_type, **resolved)
             self._streams[name] = Stream(source=backend)
         return cast("Stream[T]", self._streams[name])

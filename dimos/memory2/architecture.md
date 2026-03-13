@@ -9,10 +9,10 @@ Observation storage and streaming layer for DimOS. Pull-based, lazy, composable.
                     ↓
 Store → Stream → [filters / transforms / terminals] → Stream  → [filters / transforms / terminals] → Stream → Live hooks
                     ↓                                              ↓                                             ↓
-    Backend (Index + BlobStore + VectorStore + Notifier)     Backend                                      In Memory
+    Backend (MetadataStore + BlobStore + VectorStore + Notifier)     Backend                                      In Memory
 ```
 
-**Store** owns a storage location (file, in-memory) and directly manages named streams. **Stream** is the query/iteration surface — lazy until a terminal is called. **Backend** is a concrete composite that orchestrates Index + BlobStore + VectorStore + Notifier for each stream.
+**Store** owns a storage location (file, in-memory) and directly manages named streams. **Stream** is the query/iteration surface — lazy until a terminal is called. **Backend** is a concrete composite that orchestrates MetadataStore + BlobStore + VectorStore + Notifier for each stream.
 
 Supporting Systems:
 
@@ -27,7 +27,7 @@ Supporting Systems:
 | Module         | What                                                              |
 |----------------|-------------------------------------------------------------------|
 | `stream.py`    | Stream node — filters, transforms, terminals                      |
-| `backend.py`   | Concrete Backend composite (Index + Blob + Vector + Live)         |
+| `backend.py`   | Concrete Backend composite (MetadataStore + Blob + Vector + Live)         |
 | `store.py`     | Store, StoreConfig                                                |
 | `transform.py` | Transformer ABC, FnTransformer, FnIterTransformer, QualityWindow  |
 | `buffer.py`    | Backpressure buffers for live mode (KeepLast, Bounded, Unbounded) |
@@ -37,8 +37,8 @@ Supporting Systems:
 
 | Package         | What                                                 | Docs                                             |
 |-----------------|------------------------------------------------------|--------------------------------------------------|
-| `type/`         | Observation, EmbeddedObservation, Index Protocol, Filter/StreamQuery, BlobStore/VectorStore/Notifier ABCs | |
-| `impl/`         | Index implementations (ListIndex, SqliteIndex) and Stores (MemoryStore, SqliteStore) | [impl/README.md](impl/README.md)                 |
+| `type/`         | Observation, EmbeddedObservation, MetadataStore Protocol, Filter/StreamQuery, BlobStore/VectorStore/Notifier ABCs | |
+| `impl/`         | MetadataStore implementations (ListMetadataStore, SqliteMetadataStore) and Stores (MemoryStore, SqliteStore) | [impl/README.md](impl/README.md)                 |
 | `livechannel/`  | Live notification (SubjectNotifier)                  |                                                  |
 | `blobstore/`    | Pluggable blob storage (file, sqlite)                | [blobstore/blobstore.md](blobstore/blobstore.md) |
 | `codecs/`       | Encode/decode for storage (pickle, JPEG, LCM)        | [codecs/README.md](codecs/README.md)             |
@@ -56,7 +56,7 @@ Supporting Systems:
 
 `StreamQuery` holds the full query spec (filters, text search, vector search, ordering, offset/limit). It also provides `apply(iterator)` — a Python-side execution path that runs all operations as in-memory predicates, brute-force cosine, and list sorts.
 
-This is the **default fallback**. Index implementations are free to push down operations using store-specific strategies instead:
+This is the **default fallback**. MetadataStore implementations are free to push down operations using store-specific strategies instead:
 
 | Operation      | Python fallback (`StreamQuery.apply`) | Store push-down (example)        |
 |----------------|---------------------------------------|----------------------------------|
@@ -66,7 +66,7 @@ This is the **default fallback**. Index implementations are free to push down op
 | Ordering       | `sorted()` materialization            | SQL ORDER BY                     |
 | Offset / limit | `islice()`                            | SQL OFFSET / LIMIT               |
 
-`ListIndex` delegates entirely to `StreamQuery.apply()`. `SqliteIndex` translates the query into SQL and only falls back to Python for operations it can't express natively.
+`ListMetadataStore` delegates entirely to `StreamQuery.apply()`. `SqliteMetadataStore` translates the query into SQL and only falls back to Python for operations it can't express natively.
 
 Transform-sourced streams (post `.transform()`) always use `StreamQuery.apply()` since there's no index to push down to.
 
@@ -107,7 +107,7 @@ results = store.stream("embedded").search(query_vec, k=5).fetch()
 
 ## Implementations
 
-| Index           | Status   | Storage                                |
+| MetadataStore           | Status   | Storage                                |
 |-----------------|----------|----------------------------------------|
-| `ListIndex`     | Complete | In-memory (lists + brute-force search) |
-| `SqliteIndex`   | Complete | SQLite (WAL, FTS5, vec0)               |
+| `ListMetadataStore`     | Complete | In-memory (lists + brute-force search) |
+| `SqliteMetadataStore`   | Complete | SQLite (WAL, FTS5, vec0)               |
