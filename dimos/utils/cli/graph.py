@@ -143,6 +143,9 @@ h2 {{ padding: 0.6em 1em 0.3em; border-bottom: 1px solid #444; position: relativ
     background: rgba(30,30,30,0.7) !important; background-color: rgba(30,30,30,0.7) !important;
     border-radius: 6px; padding: 2px 6px;
 }}
+.node .label, .node foreignObject span, .node foreignObject div {{
+    text-shadow: -1px -1px 0 #777, 1px -1px 0 #777, -1px 1px 0 #777, 1px 1px 0 #777;
+}}
 </style>
 </head><body>
 {"".join(sections)}

@@ -86,26 +86,26 @@ THEMES: dict[str, dict[str, list[str]]] = {
     # Edges use the 400 shade (bright, high-visibility on dark backgrounds).
     "tailwind": {
         "nodes": [
-            "#1e40af",  # blue-800
-            "#991b1b",  # red-800
-            "#166534",  # green-800
-            "#5b21b6",  # violet-800
-            "#9a3412",  # orange-800
-            "#155e75",  # cyan-800
-            "#9d174d",  # pink-800
-            "#3730a3",  # indigo-800
-            "#854d0e",  # yellow-800
-            "#115e59",  # teal-800
-            "#9f1239",  # rose-800
-            "#3f6212",  # lime-800
-            "#075985",  # sky-800
-            "#86198f",  # fuchsia-800
-            "#065f46",  # emerald-800
-            "#6b21a8",  # purple-800
-            "#92400e",  # amber-800
-            "#0c4a6e",  # sky-900
-            "#881337",  # rose-900
-            "#365314",  # lime-900
+            "#3b82f6",  # blue-500
+            "#ef4444",  # red-500
+            "#22c55e",  # green-500
+            "#8b5cf6",  # violet-500
+            "#f97316",  # orange-500
+            "#06b6d4",  # cyan-500
+            "#ec4899",  # pink-500
+            "#6366f1",  # indigo-500
+            "#eab308",  # yellow-500
+            "#14b8a6",  # teal-500
+            "#f43f5e",  # rose-500
+            "#84cc16",  # lime-500
+            "#0ea5e9",  # sky-500
+            "#d946ef",  # fuchsia-500
+            "#10b981",  # emerald-500
+            "#a855f7",  # purple-500
+            "#f59e0b",  # amber-500
+            "#38bdf8",  # sky-400
+            "#fb7185",  # rose-400
+            "#a3e635",  # lime-400
         ],
         "edges": [
             "#60a5fa",  # blue-400
@@ -310,7 +310,7 @@ def render(
     for mod_name in sorted_modules:
         mid = _mermaid_id(mod_name)
         c = node_color(mod_name)
-        lines.append(f"    style {mid} fill:{c},stroke:{c},color:#eee,stroke-width:2px")
+        lines.append(f"    style {mid} fill:{c}bf,stroke:{c},color:#eee,stroke-width:2px")
 
     # Edge styles (one linkStyle per edge index)
     if edge_colors:
