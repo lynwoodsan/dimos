@@ -22,15 +22,32 @@ Generates a Mermaid flowchart with direct labelled edges between modules:
 from __future__ import annotations
 
 from collections import defaultdict
-from hashlib import md5
 
 from dimos.core.blueprints import Blueprint
 from dimos.core.module import Module
 
 # Colour palettes
 _NODE_COLORS = [
-    "#2d6a4f", "#1b4965", "#5a189a", "#6d3a0a", "#3d405b",
-    "#264653", "#4a3f6b", "#1a535c", "#4e4187", "#2c514c",
+    "#1565c0",  # blue
+    "#c62828",  # red
+    "#2e7d32",  # green
+    "#6a1b9a",  # purple
+    "#d84315",  # burnt orange
+    "#00838f",  # teal
+    "#ad1457",  # pink
+    "#4527a0",  # deep purple
+    "#ef6c00",  # orange
+    "#00695c",  # dark teal
+    "#283593",  # indigo
+    "#9e9d24",  # olive
+    "#1565a0",  # steel blue
+    "#b71c1c",  # dark red
+    "#558b2f",  # lime green
+    "#6d4c41",  # brown
+    "#00796b",  # sea green
+    "#7b1fa2",  # violet
+    "#e65100",  # deep orange
+    "#0277bd",  # light blue
 ]
 _EDGE_COLORS = [
     "#4cc9f0",  # sky blue
@@ -56,10 +73,19 @@ _EDGE_COLORS = [
 ]
 
 
-def _pick_color(palette: list[str], key: str) -> str:
-    """Deterministically pick a colour from *palette* based on *key*."""
-    idx = int(md5(key.encode()).hexdigest(), 16) % len(palette)
-    return palette[idx]
+class _ColorAssigner:
+    """Assigns colours from a palette sequentially, cycling when exhausted."""
+
+    def __init__(self, palette: list[str]) -> None:
+        self._palette = palette
+        self._assigned: dict[str, str] = {}
+        self._next = 0
+
+    def __call__(self, key: str) -> str:
+        if key not in self._assigned:
+            self._assigned[key] = self._palette[self._next % len(self._palette)]
+            self._next += 1
+        return self._assigned[key]
 
 
 # Connections to ignore (too noisy/common)
@@ -146,6 +172,9 @@ def render(
                 continue
             disconnected_keys.append(key)
 
+    node_color = _ColorAssigner(_NODE_COLORS)
+    edge_color = _ColorAssigner(_EDGE_COLORS)
+
     lines = ["graph LR"]
 
     # Declare module nodes with rounded boxes
@@ -164,7 +193,7 @@ def render(
     for key in sorted(active_keys, key=lambda k: f"{k[0]}:{k[1].__name__}"):
         name, type_ = key
         label = f"{name}:{type_.__name__}"
-        color = _pick_color(_EDGE_COLORS, label)
+        color = edge_color(label)
         label_color_map[label] = color
         for prod in producers[key]:
             if prod.__name__ in ignored_modules:
@@ -186,7 +215,7 @@ def render(
         for key in sorted(disconnected_keys, key=lambda k: f"{k[0]}:{k[1].__name__}"):
             name, type_ = key
             label = f"{name}:{type_.__name__}"
-            color = _pick_color(_EDGE_COLORS, label)
+            color = edge_color(label)
             label_color_map[label] = color
             stub_id = f"stub{stub_counter}"
             stub_counter += 1
@@ -212,7 +241,7 @@ def render(
     lines.append("")
     for mod_name in sorted_modules:
         mid = _mermaid_id(mod_name)
-        c = _pick_color(_NODE_COLORS, mod_name)
+        c = node_color(mod_name)
         lines.append(
             f"    style {mid} fill:{c},stroke:{c},color:#eee,stroke-width:2px"
         )

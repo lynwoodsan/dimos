@@ -132,10 +132,11 @@ h2 {{ padding: 0.6em 1em 0.3em; border-bottom: 1px solid #444; position: relativ
     display: flex; align-items: center; justify-content: center;
 }}
 .controls button:hover {{ background: #444; }}
-.edgeLabel rect, .edgeLabel polygon {{ fill: transparent !important; stroke: none !important; }}
-.edgeLabel .label-container {{ background: transparent !important; }}
+.edgeLabel rect, .edgeLabel polygon {{ fill: rgba(30,30,30,0.7) !important; stroke: none !important; rx: 6; ry: 6; }}
+.edgeLabel .label-container {{ background: rgba(30,30,30,0.7) !important; border-radius: 6px; }}
 .edgeLabel foreignObject div, .edgeLabel foreignObject span, .edgeLabel foreignObject p {{
-    background: transparent !important; background-color: transparent !important;
+    background: rgba(30,30,30,0.7) !important; background-color: rgba(30,30,30,0.7) !important;
+    border-radius: 6px; padding: 2px 6px;
 }}
 </style>
 </head><body>
@@ -167,33 +168,48 @@ document.querySelectorAll('.viewport').forEach(vp => {{
     let scale, panX, panY;
     let dragging = false, startX, startY;
 
+    // Fix edge label foreignObjects and simplify DOM
+    svg.querySelectorAll('.edgeLabel').forEach(label => {{
+        const fo = label.querySelector('foreignObject');
+        if (fo) {{
+            fo.setAttribute('height', '35');
+            // Replace div>span nesting with just a span
+            const div = fo.querySelector('div');
+            if (div) {{
+                const span = document.createElement('span');
+                span.textContent = div.textContent;
+                span.style.cssText = div.querySelector('span')?.style.cssText || '';
+                span.style.display = 'inline-flex';
+                span.style.alignItems = 'center';
+                span.style.height = '100%';
+                div.replaceWith(span);
+            }}
+        }}
+        // Round the background rect corners
+        const rect = label.querySelector('rect');
+        if (rect) {{ rect.setAttribute('rx', '6'); rect.setAttribute('ry', '6'); }}
+    }});
+
     // Colour edge labels by matching text content to colour map
     const labelColors = {label_colors_json};
     svg.querySelectorAll('.edgeLabel').forEach(label => {{
         const text = (label.textContent || '').trim();
         const color = labelColors[text];
         if (!color) return;
-        // Color all text elements inside the label
         label.querySelectorAll('span, p, text').forEach(el => {{
             if (el.tagName === 'text') el.setAttribute('fill', color);
             else el.style.color = color;
         }});
-        // Also try foreignObject children
-        label.querySelectorAll('foreignObject *').forEach(el => {{
-            el.style.color = color;
-        }});
     }});
 
-    // Auto-fit: scale diagram to fill viewport with padding
     function fitToView() {{
         const vpRect = vp.getBoundingClientRect();
-        // Reset transform so we can measure the SVG's natural size
         canvas.style.transform = 'none';
         const svgRect = svg.getBoundingClientRect();
         const svgW = svgRect.width;
         const svgH = svgRect.height;
         const pad = 40;
-        scale = Math.min((vpRect.width - pad) / svgW, (vpRect.height - pad) / svgH, 4);
+        scale = Math.min((vpRect.width - pad) / svgW, (vpRect.height - pad) / svgH);
         scale = Math.max(scale * 2, 0.2);
         panX = (vpRect.width - svgW * scale) / 2;
         panY = (vpRect.height - svgH * scale) / 2;
@@ -212,7 +228,7 @@ document.querySelectorAll('.viewport').forEach(vp => {{
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
         const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-        const newScale = Math.min(Math.max(scale * factor, 0.1), 10);
+        const newScale = Math.min(Math.max(scale * factor, 0.05), 50);
         panX = mx - (mx - panX) * (newScale / scale);
         panY = my - (my - panY) * (newScale / scale);
         scale = newScale;
@@ -238,7 +254,7 @@ document.querySelectorAll('.viewport').forEach(vp => {{
     document.getElementById('zoomIn').addEventListener('click', () => {{
         const rect = vp.getBoundingClientRect();
         const cx = rect.width / 2, cy = rect.height / 2;
-        const newScale = Math.min(scale * 1.3, 10);
+        const newScale = Math.min(scale * 1.3, 50);
         panX = cx - (cx - panX) * (newScale / scale);
         panY = cy - (cy - panY) * (newScale / scale);
         scale = newScale; apply();
@@ -246,7 +262,7 @@ document.querySelectorAll('.viewport').forEach(vp => {{
     document.getElementById('zoomOut').addEventListener('click', () => {{
         const rect = vp.getBoundingClientRect();
         const cx = rect.width / 2, cy = rect.height / 2;
-        const newScale = Math.max(scale / 1.3, 0.1);
+        const newScale = Math.max(scale / 1.3, 0.05);
         panX = cx - (cx - panX) * (newScale / scale);
         panY = cy - (cy - panY) * (newScale / scale);
         scale = newScale; apply();
