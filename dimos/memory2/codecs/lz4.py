@@ -14,14 +14,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 import lz4.frame  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
     from dimos.memory2.codecs.base import Codec
-
-T = TypeVar("T")
 
 
 class Lz4Codec:

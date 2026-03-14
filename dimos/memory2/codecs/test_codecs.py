@@ -119,7 +119,7 @@ def _jpeg_eq(original: Any, decoded: Any) -> bool:
 def _jpeg_case() -> Case | None:
     try:
         from dimos.memory2.codecs.jpeg import JpegCodec
-        from dimos.utils.testing import TimedSensorReplay
+        from dimos.utils.testing.replay import TimedSensorReplay
 
         replay = TimedSensorReplay("unitree_go2_bigoffice/video")
         frames = [replay.find_closest_seek(float(i)) for i in range(1, 4)]

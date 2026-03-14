@@ -25,7 +25,7 @@ from dimos.memory2.store.sqlite import SqliteStore
 from dimos.msgs.sensor_msgs.Image import Image
 from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 from dimos.utils.data import get_data_dir
-from dimos.utils.testing import TimedSensorReplay
+from dimos.utils.testing.replay import TimedSensorReplay
 
 if TYPE_CHECKING:
     from collections.abc import Generator
