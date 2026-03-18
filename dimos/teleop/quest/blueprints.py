@@ -15,7 +15,7 @@
 
 """Teleop blueprints for testing and deployment."""
 
-from dimos.control.blueprints import (
+from dimos.control.blueprints.teleop import (
     coordinator_teleop_dual,
     coordinator_teleop_piper,
     coordinator_teleop_xarm7,
@@ -25,10 +25,13 @@ from dimos.core.transport import LCMTransport
 from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
 from dimos.teleop.quest.quest_extensions import arm_teleop_module, visualizing_teleop_module
 from dimos.teleop.quest.quest_types import Buttons
+from dimos.visualization.rerun.bridge import rerun_bridge
+
 
 # Arm teleop with press-and-hold engage
 arm_teleop = autoconnect(
     arm_teleop_module(),
+    rerun_bridge(),
 ).transports(
     {
         ("left_controller_output", PoseStamped): LCMTransport("/teleop/left_delta", PoseStamped),

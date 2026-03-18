@@ -43,8 +43,6 @@ from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
 from dimos.msgs.sensor_msgs.JointState import JointState
 from dimos.teleop.quest.quest_types import Buttons
 
-# --- Servo / Velocity streaming (XArm6) ---
-
 # XArm6 teleop - streaming position control
 coordinator_teleop_xarm6 = control_coordinator(
     tick_rate=100.0,
@@ -115,8 +113,6 @@ coordinator_combined_xarm6 = control_coordinator(
 )
 
 
-# --- Cartesian IK ---
-
 # Mock 6-DOF arm with CartesianIK
 coordinator_cartesian_ik_mock = control_coordinator(
     tick_rate=100.0,
@@ -167,8 +163,6 @@ coordinator_cartesian_ik_piper = control_coordinator(
     }
 )
 
-
-# --- TeleopIK ---
 
 # Single XArm7 with TeleopIK
 coordinator_teleop_xarm7 = control_coordinator(
