@@ -31,6 +31,7 @@ import time
 import gtsam
 import numpy as np
 from scipy.spatial import KDTree
+from scipy.spatial.transform import Rotation
 
 from dimos.core.module import Module, ModuleConfig
 from dimos.core.stream import In, Out
@@ -172,7 +173,6 @@ class _SimplePGO:
         last = self._key_poses[-1]
         delta_trans = np.linalg.norm(t - last.t_local)
         # Angular distance via quaternion dot product
-        from scipy.spatial.transform import Rotation
 
         q_cur = Rotation.from_matrix(r).as_quat()  # [x,y,z,w]
         q_last = Rotation.from_matrix(last.r_local).as_quat()
@@ -424,7 +424,6 @@ class PGO(Module[PGOConfig]):
         super().stop()
 
     def _on_raw_odom(self, msg: PoseStamped) -> None:
-        from scipy.spatial.transform import Rotation
 
         q = [
             msg.orientation.x,
@@ -478,11 +477,9 @@ class PGO(Module[PGOConfig]):
         self._publish_corrected_odom(r_corr, t_corr, ts)
 
     def _publish_corrected_odom(self, r: np.ndarray, t: np.ndarray, ts: float) -> None:
-        from scipy.spatial.transform import Rotation as R
-
         from dimos.msgs.geometry_msgs.Pose import Pose
 
-        q = R.from_matrix(r).as_quat()  # [x,y,z,w]
+        q = Rotation.from_matrix(r).as_quat()  # [x,y,z,w]
 
         odom = Odometry(
             ts=ts,
