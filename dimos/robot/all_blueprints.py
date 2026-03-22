@@ -101,6 +101,7 @@ all_blueprints = {
     "xarm6-planner-only": "dimos.manipulation.blueprints:xarm6_planner_only",
     "xarm7-planner-coordinator": "dimos.manipulation.blueprints:xarm7_planner_coordinator",
     "xarm7-planner-coordinator-agent": "dimos.manipulation.blueprints:xarm7_planner_coordinator_agent",
+    "xarm7-trajectory-sim": "dimos.simulation.sim_blueprints:xarm7_trajectory_sim",
 }
 
 
@@ -129,7 +130,7 @@ all_modules = {
     "g1-high-level-dds-sdk": "dimos.robot.unitree.g1.effectors.high_level.dds_sdk",
     "g1-high-level-web-rtc": "dimos.robot.unitree.g1.effectors.high_level.webrtc",
     "g1-mujoco-skill-container": "dimos.robot.unitree.g1.blueprints.agentic._mujoco_skills",
-    "g1-sim-connection": "dimos.robot.unitree.g1.legacy.sim",
+    "g1-sim-connection": "dimos.robot.unitree.g1.sim",
     "go2-connection": "dimos.robot.unitree.go2.connection",
     "go2-fleet-connection": "dimos.robot.unitree.go2.fleet_connection",
     "google-maps-skill-container": "dimos.agents.skills.google_maps_skill_container",
@@ -170,11 +171,12 @@ all_modules = {
     "rerun-bridge-module": "dimos.visualization.rerun.bridge",
     "ros-nav": "dimos.navigation.rosnav_legacy",
     "simple-phone-teleop": "dimos.teleop.phone.phone_extensions",
+    "simulation-module": "dimos.simulation.manipulators.sim_module",
     "spatial-memory": "dimos.perception.spatial_perception",
     "speak-skill": "dimos.agents.skills.speak_skill",
     "temporal-memory": "dimos.perception.experimental.temporal_memory.temporal_memory",
     "twist-teleop-module": "dimos.teleop.quest.quest_extensions",
-    "unitree-g1-skill-container": "dimos.robot.unitree.g1.legacy.skill_container",
+    "unitree-g1-skill-container": "dimos.robot.unitree.g1.skill_container",
     "unitree-skill-container": "dimos.robot.unitree.unitree_skill_container",
     "vlm-agent": "dimos.agents.vlm_agent",
     "vlm-stream-tester": "dimos.agents.vlm_stream_tester",

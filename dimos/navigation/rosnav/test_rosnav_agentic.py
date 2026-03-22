@@ -54,10 +54,10 @@ from reactivex.disposable import Disposable
 
 from dimos.agents.agent import Agent
 from dimos.agents.agent_test_runner import AgentTestRunner
-from dimos.agents.skills.navigation import navigation_skill
-from dimos.agents.skills.person_follow import person_follow_skill
-from dimos.agents.skills.speak_skill import speak_skill
-from dimos.agents.web_human_input import web_input
+from dimos.agents.skills.navigation import NavigationSkillContainer
+from dimos.agents.skills.person_follow import PersonFollowSkillContainer
+from dimos.agents.skills.speak_skill import SpeakSkill
+from dimos.agents.web_human_input import WebInput
 from dimos.core.blueprints import autoconnect
 from dimos.core.core import rpc
 from dimos.core.docker_runner import DockerModule
@@ -66,9 +66,9 @@ from dimos.core.rpc_client import RPCClient
 from dimos.core.stream import In
 from dimos.core.transport import pLCMTransport
 from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
-from dimos.perception.object_tracker import object_tracking
+from dimos.perception.object_tracker import ObjectTracking
 from dimos.perception.perceive_loop_skill import PerceiveLoopSkill
-from dimos.perception.spatial_perception import spatial_memory
+from dimos.perception.spatial_perception import SpatialMemory
 from dimos.robot.unitree.g1.blueprints.perceptive.unitree_g1_rosnav_sim import (
     unitree_g1_rosnav_sim,
 )
@@ -208,13 +208,15 @@ def _build_agentic_sim_test(
         # === From unitree_g1_rosnav_sim ===
         unitree_g1_rosnav_sim,
         # === From unitree_g1_agentic_sim (all production modules) ===
-        navigation_skill(),  # NavigationSkillContainer
-        person_follow_skill(camera_info=_camera_info_static()),  # PersonFollowSkill
-        spatial_memory(),  # SpatialMemory
-        object_tracking(frame_id="camera_link"),  # ObjectTracking
+        NavigationSkillContainer.blueprint(),  # NavigationSkillContainer
+        PersonFollowSkillContainer.blueprint(
+            camera_info=_camera_info_static()
+        ),  # PersonFollowSkill
+        SpatialMemory.blueprint(),  # SpatialMemory
+        ObjectTracking.blueprint(frame_id="camera_link"),  # ObjectTracking
         PerceiveLoopSkill.blueprint(),  # PerceiveLoopSkill
-        web_input(),  # WebHumanInput
-        speak_skill(),  # SpeakSkill
+        WebInput.blueprint(),  # WebHumanInput
+        SpeakSkill.blueprint(),  # SpeakSkill
         # === Test overrides ===
         FilteredAgent.blueprint(**agent_kwargs),  # Replaces agent()
         AgentTestRunner.blueprint(messages=messages),  # Test driver
