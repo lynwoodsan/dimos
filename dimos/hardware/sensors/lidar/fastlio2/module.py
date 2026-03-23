@@ -274,14 +274,6 @@ class FastLio2(
         )
 
 
-fastlio2_module = FastLio2.blueprint
-
-__all__ = [
-    "FastLio2",
-    "FastLio2Config",
-    "fastlio2_module",
-]
-
 # Verify protocol port compliance (mypy will flag missing ports)
 if TYPE_CHECKING:
     FastLio2()
