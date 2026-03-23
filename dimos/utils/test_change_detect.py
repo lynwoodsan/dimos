@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from dimos.utils.change_detect import clear_cache, did_change
+from dimos.utils.change_detect import Glob, clear_cache, did_change
 
 
 @pytest.fixture(autouse=True)
@@ -70,11 +70,20 @@ def test_file_deleted_returns_true(src_dir: Path) -> None:
 
 
 def test_glob_pattern(src_dir: Path) -> None:
-    pattern = str(src_dir / "*.c")
+    pattern = Glob(str(src_dir / "*.c"))
     assert did_change("glob_cache", [pattern]) is True
     assert did_change("glob_cache", [pattern]) is False
     (src_dir / "a.c").write_text("changed!")
     assert did_change("glob_cache", [pattern]) is True
+
+
+def test_str_with_glob_chars_is_literal(tmp_path: Path) -> None:
+    """A plain str containing '*' must NOT be glob-expanded."""
+    weird_name = tmp_path / "file[1].txt"
+    weird_name.write_text("content")
+    # str path — treated literally, should find the file
+    assert did_change("literal_test", [str(weird_name)]) is True
+    assert did_change("literal_test", [str(weird_name)]) is False
 
 
 def test_separate_cache_names_independent(src_dir: Path) -> None:
@@ -108,7 +117,19 @@ def test_empty_paths_returns_false() -> None:
 
 
 def test_nonexistent_path_warns(caplog: pytest.LogCaptureFixture) -> None:
-    """A non-existent path logs a warning and doesn't crash."""
+    """A non-existent absolute path logs a warning and doesn't crash."""
     result = did_change("missing_test", ["/nonexistent/path/to/file.c"])
-    # First call with no resolvable files still returns True (no cache)
-    assert isinstance(result, bool)
+    # No resolvable files → returns False (skip rebuild)
+    assert result is False
+
+
+def test_relative_path_without_cwd_raises() -> None:
+    """Relative paths without cwd= should raise ValueError."""
+    with pytest.raises(ValueError, match="Relative path.*without a cwd"):
+        did_change("rel_test", ["some/relative/path.c"])
+
+
+def test_relative_path_with_cwd(src_dir: Path) -> None:
+    """Relative paths should resolve against the provided cwd."""
+    assert did_change("cwd_test", ["src/a.c"], cwd=src_dir.parent) is True
+    assert did_change("cwd_test", ["src/a.c"], cwd=src_dir.parent) is False
