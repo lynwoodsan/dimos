@@ -14,14 +14,14 @@
 
 """Booster K1 agentic blueprint: spatial + agent + skills."""
 
-from dimos.agents.agent import agent
+from dimos.agents.agent import Agent
 from dimos.core.blueprints import autoconnect
 from dimos.robot.booster.k1.blueprints.agentic._common_agentic import _common_agentic
 from dimos.robot.booster.k1.blueprints.smart.booster_k1_spatial import booster_k1_spatial
 
 booster_k1_agentic = autoconnect(
     booster_k1_spatial,
-    agent(),
+    Agent.blueprint(),
     _common_agentic,
 )
 

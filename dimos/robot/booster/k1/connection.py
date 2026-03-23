@@ -48,9 +48,9 @@ from dimos.spec.perception import Camera, Pointcloud
 from dimos.utils.logging_config import setup_logger
 
 if sys.version_info < (3, 13):
-    from typing_extensions import TypeVar
+    pass
 else:
-    from typing import TypeVar
+    pass
 
 logger = setup_logger()
 

@@ -24,8 +24,8 @@ from dimos.core.transport import pSHMTransport
 from dimos.msgs.sensor_msgs.Image import Image
 from dimos.protocol.pubsub.impl.lcmpubsub import LCM
 from dimos.protocol.service.system_configurator.clock_sync import ClockSyncConfigurator
-from dimos.robot.booster.k1.connection import k1_connection
-from dimos.web.websocket_vis.websocket_vis_module import websocket_vis
+from dimos.robot.booster.k1.connection import K1Connection
+from dimos.web.websocket_vis.websocket_vis_module import WebsocketVisModule
 
 # Mac has some issue with high bandwidth UDP, so we use pSHMTransport for color_image
 _mac_transports: dict[tuple[str, type], pSHMTransport[Image]] = {
@@ -69,17 +69,18 @@ rerun_config = {
 
 
 if global_config.viewer == "foxglove":
-    from dimos.robot.foxglove_bridge import foxglove_bridge
+    from dimos.robot.foxglove_bridge import FoxgloveBridge
 
     with_vis = autoconnect(
         _transports_base,
-        foxglove_bridge(shm_channels=["/color_image#sensor_msgs.Image"]),
+        FoxgloveBridge.blueprint(shm_channels=["/color_image#sensor_msgs.Image"]),
     )
 elif global_config.viewer.startswith("rerun"):
-    from dimos.visualization.rerun.bridge import _resolve_viewer_mode, rerun_bridge
+    from dimos.visualization.rerun.bridge import RerunBridgeModule, _resolve_viewer_mode
 
     with_vis = autoconnect(
-        _transports_base, rerun_bridge(viewer_mode=_resolve_viewer_mode(), **rerun_config)
+        _transports_base,
+        RerunBridgeModule.blueprint(viewer_mode=_resolve_viewer_mode(), **rerun_config),
     )
 else:
     with_vis = _transports_base
@@ -87,8 +88,8 @@ else:
 booster_k1_basic = (
     autoconnect(
         with_vis,
-        k1_connection(),
-        websocket_vis(),
+        K1Connection.blueprint(),
+        WebsocketVisModule.blueprint(),
     )
     .global_config(n_workers=4, robot_model="booster_k1")
     .configurators(ClockSyncConfigurator())
