@@ -96,12 +96,12 @@ class Batch(Transformer[T, R]):
             batch.append(obs)
             if len(batch) >= self._batch_size:
                 results = fn([o.data for o in batch])
-                for o, r in zip(batch, results, strict=False):
+                for o, r in zip(batch, results, strict=True):
                     yield o.derive(data=r)
                 batch = []
         if batch:
             results = fn([o.data for o in batch])
-            for o, r in zip(batch, results, strict=False):
+            for o, r in zip(batch, results, strict=True):
                 yield o.derive(data=r)
 
 

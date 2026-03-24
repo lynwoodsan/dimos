@@ -87,6 +87,7 @@ class SqliteVectorStore(VectorStore):
         )
 
     def search(self, stream_name: str, query: Embedding, k: int) -> list[tuple[int, float]]:
+        validate_identifier(stream_name)
         vec = query.to_numpy().tolist()
         try:
             rows = self._conn.execute(
@@ -101,6 +102,7 @@ class SqliteVectorStore(VectorStore):
         return [(int(row[0]), max(0.0, 1.0 - row[1])) for row in rows]
 
     def delete(self, stream_name: str, key: int) -> None:
+        validate_identifier(stream_name)
         try:
             self._conn.execute(f'DELETE FROM "{stream_name}_vec" WHERE rowid = ?', (key,))
         except sqlite3.OperationalError as e:
