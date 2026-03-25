@@ -15,6 +15,7 @@
 import asyncio
 from dataclasses import dataclass
 import functools
+import logging
 import threading
 import time
 from typing import Any, TypeAlias
@@ -92,8 +93,28 @@ class UnitreeWebRTCConnection(Resource):
         self.connected_event = asyncio.Event()
         self.connection_ready = threading.Event()
 
+        # Suppress root logger errors from unitree_auth during the WebRTC
+        # connection handshake.  The library always tries a legacy SDP method
+        # (port 8081) first, which logs ERROR on newer firmware before falling
+        # back to the working method (port 9991).  If both methods truly fail
+        # the library calls sys.exit(1), so suppressed messages only hide noise
+        # on the success path.
+        class _SuppressUnitreeAuthErrors(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                if record.levelno >= logging.WARNING and "unitree_auth" in (record.pathname or ""):
+                    return False
+                return True
+
+        auth_filter = _SuppressUnitreeAuthErrors()
+
         async def async_connect() -> None:
-            await self.conn.connect()
+            root_logger = logging.getLogger()
+            root_logger.addFilter(auth_filter)
+            try:
+                await self.conn.connect()
+            finally:
+                root_logger.removeFilter(auth_filter)
+
             await self.conn.datachannel.disableTrafficSaving(True)
 
             self.conn.datachannel.set_decoder(decoder_type="native")
