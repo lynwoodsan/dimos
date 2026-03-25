@@ -24,6 +24,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from dimos.utils.safe_thread_map import ExceptionGroup
+
 
 class TestDockerWorkerManagerPartialFailure:
     """DockerWorkerManager.deploy_parallel must stop successful containers when one fails."""

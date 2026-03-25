@@ -118,7 +118,7 @@ class ModuleBase(Configurable[ModuleConfigT], Resource):
         self._loop, self._loop_thread = get_loop()
         self._disposables = CompositeDisposable()
         try:
-            self.rpc = self.config.rpc_transport(
+            self.rpc = self.config.rpc_transport(  # type: ignore[call-arg]
                 rpc_timeouts=self.config.rpc_timeouts,
                 default_rpc_timeout=self.config.default_rpc_timeout,
             )

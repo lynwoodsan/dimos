@@ -178,8 +178,8 @@ class DockerModule(ModuleProxyProtocol):
     config: DockerModuleConfig
 
     def __init__(self, module_class: type[Module], *args: Any, **kwargs: Any) -> None:
-        # global_config is passed by deploy pipeline but isn't a config field
-        kwargs.pop("global_config", None)
+        # g (GlobalConfig) is passed by deploy pipeline but isn't a config field
+        kwargs.pop("g", None)
 
         config_class = getattr(module_class, "default_config", DockerModuleConfig)
         if not issubclass(config_class, DockerModuleConfig):
@@ -241,12 +241,13 @@ class DockerModule(ModuleProxyProtocol):
                 r = subprocess.run(
                     [config.docker_bin, "pull", config.docker_image],
                     text=True,
-                    stderr=subprocess.PIPE,
+                    capture_output=True,
                     timeout=config.docker_pull_timeout,
                 )
                 if r.returncode != 0:
                     raise RuntimeError(
-                        f"Failed to pull image '{config.docker_image}'.\nSTDERR:\n{r.stderr}"
+                        f"Failed to pull image '{config.docker_image}'.\n"
+                        f"stdout: {r.stdout}\nstderr: {r.stderr}"
                     )
 
             reconnect = False

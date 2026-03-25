@@ -46,7 +46,7 @@ class DockerWorkerManager:
             raise ExceptionGroup("docker deploy_parallel failed", errors)
 
         def _deploy_one(spec: ModuleSpec) -> DockerModule:
-            mod = DockerModule(spec[0], global_config=spec[1], **spec[2])  # type: ignore[arg-type]
+            mod = DockerModule(spec[0], g=spec[1], **spec[2])  # type: ignore[arg-type]
             mod.build()
             return mod
 
