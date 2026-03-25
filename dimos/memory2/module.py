@@ -53,10 +53,12 @@ class StreamModule(Module[ModuleConfigT]):
     """
 
     def __init__(self, *, store: Any | None = None, **kwargs: Any) -> None:
-        from dimos.memory2.store.memory import MemoryStore
+        from dimos.memory2.store.null import NullStore
 
         super().__init__(**kwargs)
-        self._store = store if store is not None else MemoryStore()
+        # Default to NullStore (O(1) memory, live-only).
+        # Pass store=MemoryStore() for replay/history.
+        self._store = store if store is not None else NullStore()
 
     @rpc
     def start(self) -> None:

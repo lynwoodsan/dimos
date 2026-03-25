@@ -20,7 +20,9 @@ import pytest
 
 from dimos.core.stream import In, Out
 from dimos.memory2.module import StreamModule
+from dimos.memory2.observationstore.null import NullObservationStore
 from dimos.memory2.store.memory import MemoryStore
+from dimos.memory2.store.null import NullStore
 from dimos.memory2.stream import Stream
 from dimos.memory2.transform import FnTransformer, Transformer
 from dimos.memory2.type.observation import Observation
@@ -263,3 +265,48 @@ def test_stream_module_runtime_wiring() -> None:
     get_scheduler().executor.shutdown(wait=True)
 
     assert received == [84]
+
+
+# -- NullObservationStore tests --
+
+
+def test_null_store_monotonic_ids() -> None:
+    """NullObservationStore assigns monotonically increasing IDs."""
+    store = NullObservationStore(name="test")
+    store.start()
+
+    obs = Observation(id=-1, ts=1.0, _data="hello")
+    id0 = store.insert(obs)
+    id1 = store.insert(Observation(id=-1, ts=2.0, _data="world"))
+    id2 = store.insert(Observation(id=-1, ts=3.0, _data="!"))
+
+    assert id0 == 0
+    assert id1 == 1
+    assert id2 == 2
+
+
+def test_null_store_empty_query() -> None:
+    """NullObservationStore.query() always returns empty."""
+    from dimos.memory2.type.filter import StreamQuery
+
+    store = NullObservationStore(name="test")
+    store.start()
+    store.insert(Observation(id=-1, ts=1.0, _data="data"))
+
+    assert list(store.query(StreamQuery())) == []
+    assert store.count(StreamQuery()) == 0
+    assert store.fetch_by_ids([0]) == []
+
+
+def test_null_store_discards_history() -> None:
+    """NullStore discards history but still supports live streaming."""
+    store = NullStore()
+    with store:
+        stream = store.stream("test", int)
+        stream.append(1)
+        stream.append(2)
+        stream.append(3)
+
+        # History is empty — NullObservationStore discards everything
+        assert stream.count() == 0
+        assert stream.fetch() == []
