@@ -55,11 +55,17 @@ class Stream(Resource, Generic[T]):
 
     Implements Resource so live streams can be cleanly stopped via
     ``stop()`` or used as a context manager.
+
+    An *unbound* stream (``Stream()``) records a chain of transforms
+    without a real source. Use ``.chain()`` to apply it to a bound stream::
+
+        pipeline = Stream().transform(VoxelMap()).map(postprocess)
+        store.stream("lidar", PointCloud2).live().chain(pipeline)
     """
 
     def __init__(
         self,
-        source: Backend[T] | Stream[Any],
+        source: Backend[T] | Stream[Any] | None = None,
         *,
         xf: Transformer[Any, T] | None = None,
         query: StreamQuery = StreamQuery(),
@@ -88,9 +94,12 @@ class Stream(Resource, Generic[T]):
             current = current._source
         chain.reverse()  # innermost first
 
-        # current is the Backend
-        name = getattr(current, "name", "?")
-        result = f'Stream("{name}")'
+        # current is the Backend (or None for unbound)
+        if current is None:
+            result = "Stream(unbound)"
+        else:
+            name = getattr(current, "name", "?")
+            result = f'Stream("{name}")'
 
         for xf, query in chain:
             if xf is not None:
@@ -113,6 +122,10 @@ class Stream(Resource, Generic[T]):
         return self._build_iter()
 
     def _build_iter(self) -> Iterator[Observation[T]]:
+        if self._source is None:
+            raise TypeError(
+                "Cannot iterate an unbound stream. Use .chain() to apply it to a real stream first."
+            )
         if isinstance(self._source, Stream):
             return self._iter_transform()
         # Backend handles all query application (including live if requested)
@@ -221,9 +234,9 @@ class Stream(Resource, Generic[T]):
         Default buffer: KeepLast(). The backend handles subscription, dedup,
         and backpressure — how it does so is its business.
         """
-        if isinstance(self._source, Stream):
+        if isinstance(self._source, Stream) or self._source is None:
             raise TypeError(
-                "Cannot call .live() on a transform stream. "
+                "Cannot call .live() on a transform/unbound stream. "
                 "Call .live() on the source stream, then .transform()."
             )
         buf = buffer if buffer is not None else KeepLast()
@@ -234,8 +247,10 @@ class Stream(Resource, Generic[T]):
 
         Returns the target stream for continued querying.
         """
-        if isinstance(target._source, Stream):
-            raise TypeError("Cannot save to a transform stream. Target must be backend-backed.")
+        if isinstance(target._source, Stream) or target._source is None:
+            raise TypeError(
+                "Cannot save to a transform/unbound stream. Target must be backend-backed."
+            )
         backend = target._source
         for obs in self:
             backend.append(obs)
@@ -264,7 +279,7 @@ class Stream(Resource, Generic[T]):
 
     def count(self) -> int:
         """Count matching observations."""
-        if not isinstance(self._source, Stream):
+        if not isinstance(self._source, (Stream, type(None))):
             return self._source.count(self._query)
         if self.is_live():
             raise TypeError(".count() on a live transform stream would block forever.")
@@ -347,6 +362,33 @@ class Stream(Resource, Generic[T]):
         """
         return self.subscribe(on_next=lambda obs: out.publish(obs.data))
 
+    def chain(self, other: Stream[R]) -> Stream[R]:
+        """Append operations from an unbound stream to this stream.
+
+        Extracts the transform/filter chain from *other* (which must be
+        unbound) and replays it on top of ``self``::
+
+            pipeline = Stream().transform(VoxelMap()).map(postprocess)
+            store.stream("lidar").live().chain(pipeline)
+        """
+        ops: list[tuple[Transformer[Any, Any] | None, StreamQuery]] = []
+        current: Stream[Any] | None | Any = other
+        while isinstance(current, Stream):
+            ops.append((current._xf, current._query))
+            if current._source is None:
+                break
+            current = current._source
+        else:
+            raise TypeError("Can only chain an unbound stream (created with Stream())")
+
+        result: Stream[Any] = self
+        for xf, query in reversed(ops):
+            if xf is not None:
+                result = result.transform(xf)
+            for f in query.filters:
+                result = result._with_filter(f)
+        return result  # type: ignore[return-value]
+
     def append(
         self,
         payload: T,
@@ -357,8 +399,10 @@ class Stream(Resource, Generic[T]):
         embedding: Embedding | None = None,
     ) -> Observation[T]:
         """Append to the backing store. Only works if source is a Backend."""
-        if isinstance(self._source, Stream):
-            raise TypeError("Cannot append to a transform stream. Append to the source stream.")
+        if isinstance(self._source, Stream) or self._source is None:
+            raise TypeError(
+                "Cannot append to a transform/unbound stream. Append to the source stream."
+            )
         _ts = ts if ts is not None else time.time()
         _tags = tags or {}
         if embedding is not None:
