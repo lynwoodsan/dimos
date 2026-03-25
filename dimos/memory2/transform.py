@@ -119,9 +119,6 @@ def stride(n: int) -> Callable[[Iterator[Observation[T]]], Iterator[Observation[
 every_nth = stride
 
 
-every_nth = stride
-
-
 class QualityWindow(Transformer[T, T]):
     """Keeps the highest-quality item per time window.
 

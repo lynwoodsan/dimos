@@ -18,9 +18,7 @@ from typing import Any
 import numpy as np
 import open3d as o3d  # type: ignore[import-untyped]
 import open3d.core as o3c  # type: ignore[import-untyped]
-from reactivex import interval, operators as ops
 from reactivex.disposable import Disposable
-from reactivex.subject import Subject
 
 from dimos.core.core import rpc
 from dimos.core.module import Module, ModuleConfig
@@ -28,7 +26,6 @@ from dimos.core.stream import In, Out
 from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 from dimos.utils.decorators.decorators import simple_mcache
 from dimos.utils.logging_config import setup_logger
-from dimos.utils.reactive import backpressure
 
 logger = setup_logger()
 
@@ -163,8 +160,6 @@ class VoxelGrid:
 
 class Config(ModuleConfig):
     frame_id: str = "world"
-    # -1 never publishes, 0 publishes on every frame, >0 publishes at interval in seconds
-    publish_interval: float = 0
     voxel_size: float = 0.05
     block_count: int = 2_000_000
     device: str = "CUDA:0"
@@ -172,72 +167,55 @@ class Config(ModuleConfig):
 
 
 class VoxelGridMapper(Module[Config]):
+    """Accumulate lidar point clouds into a global voxel map.
+
+    Uses a memory2 stream pipeline internally:
+    ``In[lidar] → MemoryStore → .live().transform(VoxelMap) → Out[global_map]``
+    """
+
     default_config = Config
 
     lidar: In[PointCloud2]
     global_map: Out[PointCloud2]
 
     def __init__(self, **kwargs: Any) -> None:
+        from dimos.memory2.store.memory import MemoryStore
+
         super().__init__(**kwargs)
-        self._grid = VoxelGrid(
-            voxel_size=self.config.voxel_size,
-            block_count=self.config.block_count,
-            device=self.config.device,
-            carve_columns=self.config.carve_columns,
-            frame_id=self.frame_id,
-        )
+        self._store = MemoryStore()
 
     @rpc
     def start(self) -> None:
+        from dimos.memory2.voxel_map import VoxelMap
+
         super().start()
+        self._store.start()
 
-        # Subject to trigger publishing, with backpressure to drop if busy
-        self._publish_trigger: Subject[None] = Subject()
+        lidar = self._store.stream("lidar", PointCloud2)
+
+        # In → Store: append every incoming frame
+        unsub = self.lidar.subscribe(lambda msg: lidar.append(msg))
+        self._disposables.add(Disposable(unsub))
+
+        # Store → Transform → Out: live stream pipeline
         self._disposables.add(
-            backpressure(self._publish_trigger)
-            .pipe(ops.map(lambda _: self.publish_global_map()))
-            .subscribe()
-        )
-
-        lidar_unsub = self.lidar.subscribe(self._on_frame)
-        self._disposables.add(Disposable(lidar_unsub))
-
-        # If publish_interval > 0, publish on timer; otherwise publish on each frame
-        if self.config.publish_interval > 0:
-            self._disposables.add(
-                interval(self.config.publish_interval).subscribe(
-                    lambda _: self._publish_trigger.on_next(None)
+            lidar.live()
+            .transform(
+                VoxelMap(
+                    voxel_size=self.config.voxel_size,
+                    block_count=self.config.block_count,
+                    device=self.config.device,
+                    carve_columns=self.config.carve_columns,
+                    emit_every=1,
                 )
             )
+            .publish(self.global_map)
+        )
 
     @rpc
     def stop(self) -> None:
         super().stop()
-        self._grid.clear()
-
-    def _on_frame(self, frame: PointCloud2) -> None:
-        self.add_frame(frame)
-        if self.config.publish_interval == 0:
-            self._publish_trigger.on_next(None)
-
-    def publish_global_map(self) -> None:
-        pc = self.get_global_pointcloud2()
-        self.global_map.publish(pc)
-
-    def add_frame(self, frame: PointCloud2) -> None:
-        self._grid.add_frame(frame)
-
-    def get_global_pointcloud2(self) -> PointCloud2:
-        return self._grid.get_global_pointcloud2()
-
-    def get_global_pointcloud(self) -> o3d.t.geometry.PointCloud:
-        return self._grid.get_global_pointcloud()
-
-    def size(self) -> int:
-        return self._grid.size()
-
-    def __len__(self) -> int:
-        return self.size()
+        self._store.stop()
 
 
 def ensure_tensor_pcd(

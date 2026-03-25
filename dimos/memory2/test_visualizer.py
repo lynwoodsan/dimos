@@ -154,6 +154,6 @@ class TestVisualizer:
         n_frames = lidar.count()
         print(f"\nLidar frames: {n_frames}")
 
-        result = lidar.transform(VoxelMap(voxel_size=0.05)).first()
+        result = lidar.transform(VoxelMap(voxel_size=0.05)).last()
         global_map = result.data
         print(f"Global map: {len(global_map)} voxels from {result.tags['frame_count']} frames")

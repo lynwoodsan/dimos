@@ -335,6 +335,18 @@ class Stream(Resource, Generic[T]):
             on_completed=on_completed,
         )
 
+    def publish(self, out: Any) -> DisposableBase:
+        """Publish each observation's data to a Module ``Out`` port.
+
+        Iteration runs on the dimos thread pool (via :meth:`subscribe`).
+        Returns a ``DisposableBase`` suitable for ``_disposables.add()``.
+
+        Example::
+
+            lidar.live().transform(VoxelMap()).publish(self.global_map)
+        """
+        return self.subscribe(on_next=lambda obs: out.publish(obs.data))
+
     def append(
         self,
         payload: T,

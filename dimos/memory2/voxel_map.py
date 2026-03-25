@@ -30,7 +30,11 @@ class VoxelMap(Transformer[PointCloud2, PointCloud2]):
     """Accumulate PointCloud2 observations into a global voxel map.
 
     Assumes input clouds are already in world frame (same as VoxelGridMapper).
-    Yields the accumulated global map when upstream exhausts.
+
+    Args:
+        emit_every: Yield the current accumulated map every *n* frames.
+            ``1`` (default) = yield after every frame (live-compatible).
+            ``0`` = yield only when upstream exhausts (batch mode).
     """
 
     def __init__(
@@ -40,11 +44,22 @@ class VoxelMap(Transformer[PointCloud2, PointCloud2]):
         block_count: int = 2_000_000,
         device: str = "CUDA:0",
         carve_columns: bool = True,
+        emit_every: int = 1,
     ) -> None:
         self.voxel_size = voxel_size
         self.block_count = block_count
         self.device = device
         self.carve_columns = carve_columns
+        self.emit_every = emit_every
+
+    def _make_obs(
+        self, grid: VoxelGrid, last_obs: Observation[PointCloud2], count: int
+    ) -> Observation[PointCloud2]:
+        return last_obs.derive(
+            data=grid.get_global_pointcloud2(),
+            pose=None,
+            tags={**last_obs.tags, "frame_count": count},
+        )
 
     def __call__(
         self, upstream: Iterator[Observation[PointCloud2]]
@@ -63,9 +78,9 @@ class VoxelMap(Transformer[PointCloud2, PointCloud2]):
             last_obs = obs
             count += 1
 
-        if last_obs is not None:
-            yield last_obs.derive(
-                data=grid.get_global_pointcloud2(),
-                pose=None,
-                tags={**last_obs.tags, "frame_count": count},
-            )
+            if self.emit_every > 0 and count % self.emit_every == 0:
+                yield self._make_obs(grid, last_obs, count)
+
+        # Yield on exhaustion: always in batch mode, or if there are un-emitted frames
+        if last_obs is not None and (self.emit_every == 0 or count % self.emit_every != 0):
+            yield self._make_obs(grid, last_obs, count)

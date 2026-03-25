@@ -50,8 +50,8 @@ def test_accumulate_two_frames() -> None:
     xf = VoxelMap(voxel_size=0.5, carve_columns=False)
     results = list(xf(iter([obs1, obs2])))
 
-    assert len(results) == 1
-    global_map = results[0].data
+    assert len(results) == 2  # emit_every=1 default
+    global_map = results[-1].data  # last result has the full accumulated map
 
     single_results = list(VoxelMap(voxel_size=0.5)(iter([obs1])))
     assert len(global_map) > len(single_results[0].data)
@@ -69,8 +69,35 @@ def test_frame_count_tag() -> None:
     xf = VoxelMap(voxel_size=0.5, device="CPU:0")
     results = list(xf(iter(obs)))
 
+    assert len(results) == 5  # emit_every=1 (default), one result per frame
+    assert results[-1].tags["frame_count"] == 5
+
+
+def test_emit_every_batch_mode() -> None:
+    """emit_every=0 yields only on exhaustion (batch mode)."""
+    pts = _unit_cube_points(30)
+    obs = [_make_obs(i, pts, ts=float(i)) for i in range(5)]
+
+    xf = VoxelMap(voxel_size=0.5, device="CPU:0", emit_every=0)
+    results = list(xf(iter(obs)))
+
     assert len(results) == 1
     assert results[0].tags["frame_count"] == 5
+
+
+def test_emit_every_n() -> None:
+    """emit_every=3 yields after every 3rd frame, plus remainder on exhaustion."""
+    pts = _unit_cube_points(30)
+    obs = [_make_obs(i, pts, ts=float(i)) for i in range(7)]
+
+    xf = VoxelMap(voxel_size=0.5, device="CPU:0", emit_every=3)
+    results = list(xf(iter(obs)))
+
+    # 7 frames / emit_every=3 → yields at frame 3, 6, then remainder (7) on exhaustion
+    assert len(results) == 3
+    assert results[0].tags["frame_count"] == 3
+    assert results[1].tags["frame_count"] == 6
+    assert results[2].tags["frame_count"] == 7
 
 
 # -- Integration tests against real replay data --
@@ -116,19 +143,18 @@ class TestVoxelMapReplay:
         """First 100 frames should produce fewer voxels than the full dataset."""
         lidar = store.stream("lidar", PointCloud2)
 
-        subset = lidar.transform(VoxelMap(voxel_size=0.05)).first()
-        # compare against a smaller slice
-        small = lidar.limit(100).transform(VoxelMap(voxel_size=0.05)).first()
+        full = lidar.transform(VoxelMap(voxel_size=0.05)).last()
+        small = lidar.limit(100).transform(VoxelMap(voxel_size=0.05)).last()
 
         assert small.tags["frame_count"] == 100
-        assert len(small.data) < len(subset.data)
+        assert len(small.data) < len(full.data)
 
     def test_coarse_vs_fine_resolution(self, store: SqliteStore) -> None:
         """Coarser voxel size should produce fewer voxels."""
         lidar = store.stream("lidar", PointCloud2).limit(200)
 
-        fine = lidar.transform(VoxelMap(voxel_size=0.05)).first()
-        coarse = lidar.transform(VoxelMap(voxel_size=0.20)).first()
+        fine = lidar.transform(VoxelMap(voxel_size=0.05)).last()
+        coarse = lidar.transform(VoxelMap(voxel_size=0.20)).last()
 
         assert len(coarse.data) < len(fine.data)
         print(f"\nfine(0.05): {len(fine.data)} voxels, coarse(0.20): {len(coarse.data)} voxels")
