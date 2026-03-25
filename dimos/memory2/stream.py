@@ -360,7 +360,17 @@ class Stream(Resource, Generic[T]):
 
             lidar.live().transform(VoxelMap()).publish(self.global_map)
         """
-        return self.subscribe(on_next=lambda obs: out.publish(obs.data))
+        import logging
+
+        log = logging.getLogger(__name__)
+
+        def _on_error(e: Exception) -> None:
+            log.error("Stream.publish() pipeline error: %s", e, exc_info=True)
+
+        return self.subscribe(
+            on_next=lambda obs: out.publish(obs.data),
+            on_error=_on_error,
+        )
 
     def chain(self, other: Stream[R]) -> Stream[R]:
         """Append operations from an unbound stream to this stream.
@@ -391,7 +401,7 @@ class Stream(Resource, Generic[T]):
                 result = result._with_filter(f)
             if query.limit_val is not None:
                 result = result.limit(query.limit_val)
-            if query.offset_val:
+            if query.offset_val is not None and query.offset_val != 0:
                 result = result.offset(query.offset_val)
             if query.order_field is not None:
                 result = result.order_by(query.order_field, desc=query.order_desc)

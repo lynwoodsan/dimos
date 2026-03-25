@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from dimos.memory2.transform import Transformer
 from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
@@ -30,33 +30,24 @@ class VoxelMap(Transformer[PointCloud2, PointCloud2]):
     """Accumulate PointCloud2 observations into a global voxel map.
 
     Assumes input clouds are already in world frame (same as VoxelGridMapper).
+    All keyword arguments except ``emit_every`` are forwarded to
+    :class:`~dimos.mapping.voxels.VoxelGrid`.
 
     Args:
         emit_every: Yield the current accumulated map every *n* frames.
             ``1`` (default) = yield after every frame (live-compatible).
             ``0`` = yield only when upstream exhausts (batch mode).
+        **grid_kwargs: Forwarded to ``VoxelGrid()``.
     """
 
-    def __init__(
-        self,
-        *,
-        voxel_size: float = 0.05,
-        block_count: int = 2_000_000,
-        device: str = "CUDA:0",
-        carve_columns: bool = True,
-        frame_id: str = "world",
-        emit_every: int = 1,
-    ) -> None:
-        self.voxel_size = voxel_size
-        self.block_count = block_count
-        self.device = device
-        self.carve_columns = carve_columns
-        self.frame_id = frame_id
+    def __init__(self, *, emit_every: int = 1, **grid_kwargs: Any) -> None:
         self.emit_every = emit_every
+        self._grid_kwargs = grid_kwargs
 
     def _make_obs(
         self, grid: VoxelGrid, last_obs: Observation[PointCloud2], count: int
     ) -> Observation[PointCloud2]:
+        # pose=None: the global map is in world frame, per-observation pose is meaningless
         return last_obs.derive(
             data=grid.get_global_pointcloud2(),
             pose=None,
@@ -68,13 +59,7 @@ class VoxelMap(Transformer[PointCloud2, PointCloud2]):
     ) -> Iterator[Observation[PointCloud2]]:
         from dimos.mapping.voxels import VoxelGrid
 
-        grid = VoxelGrid(
-            voxel_size=self.voxel_size,
-            block_count=self.block_count,
-            device=self.device,
-            carve_columns=self.carve_columns,
-            frame_id=self.frame_id,
-        )
+        grid = VoxelGrid(**self._grid_kwargs)
         try:
             last_obs: Observation[PointCloud2] | None = None
             count = 0

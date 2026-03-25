@@ -52,11 +52,11 @@ class StreamModule(Module[ModuleConfigT]):
     persistence if the store is swapped for a persistent backend later.
     """
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, *, store: Any | None = None, **kwargs: Any) -> None:
         from dimos.memory2.store.memory import MemoryStore
 
         super().__init__(**kwargs)
-        self._store = MemoryStore()
+        self._store = store if store is not None else MemoryStore()
 
     @rpc
     def start(self) -> None:

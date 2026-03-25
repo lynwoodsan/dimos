@@ -70,8 +70,14 @@ class VoxelGrid:
         self._voxel_hashmap = self.vbg.hashmap()
         self._key_dtype = self._voxel_hashmap.key_tensor().dtype
         self._latest_frame_ts: float = 0.0
+        self._disposed = False
+
+    def _check_disposed(self) -> None:
+        if self._disposed:
+            raise RuntimeError("VoxelGrid has been disposed and cannot be used")
 
     def add_frame(self, frame: PointCloud2) -> None:
+        self._check_disposed()
         if frame.ts is not None:
             self._latest_frame_ts = frame.ts
 
@@ -129,6 +135,7 @@ class VoxelGrid:
 
     @simple_mcache
     def get_global_pointcloud2(self) -> PointCloud2:
+        self._check_disposed()
         return PointCloud2(
             ensure_legacy_pcd(self.get_global_pointcloud()),
             frame_id=self.frame_id,
@@ -137,6 +144,7 @@ class VoxelGrid:
 
     @simple_mcache
     def get_global_pointcloud(self) -> o3d.t.geometry.PointCloud:
+        self._check_disposed()
         voxel_coords, _ = self.vbg.voxel_coordinates_and_flattened_indices()
         pts = voxel_coords + (self.voxel_size * 0.5)
         out = o3d.t.geometry.PointCloud(device=self._dev)
@@ -144,6 +152,7 @@ class VoxelGrid:
         return out
 
     def size(self) -> int:
+        self._check_disposed()
         return self._voxel_hashmap.size()  # type: ignore[no-any-return]
 
     def __len__(self) -> int:
@@ -151,6 +160,9 @@ class VoxelGrid:
 
     def dispose(self) -> None:
         """Free GPU resources. The object is unusable after this call."""
+        if self._disposed:
+            return
+        self._disposed = True
         self.get_global_pointcloud.invalidate_cache(self)  # type: ignore[attr-defined]
         self.get_global_pointcloud2.invalidate_cache(self)  # type: ignore[attr-defined]
         self.vbg = None  # type: ignore[assignment]
@@ -173,15 +185,8 @@ class VoxelGridMapper(StreamModule[VoxelGridMapperConfig]):
     default_config = VoxelGridMapperConfig
 
     def pipeline(self, stream: Stream[PointCloud2]) -> Stream[PointCloud2]:
-        return stream.transform(
-            VoxelMap(
-                voxel_size=self.config.voxel_size,
-                block_count=self.config.block_count,
-                device=self.config.device,
-                carve_columns=self.config.carve_columns,
-                frame_id=self.config.frame_id,
-            )
-        )
+        cfg = self.config.model_dump(exclude=set(ModuleConfig.model_fields))
+        return stream.transform(VoxelMap(**cfg))
 
     lidar: In[PointCloud2]
     global_map: Out[PointCloud2]
