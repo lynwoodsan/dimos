@@ -75,7 +75,6 @@ class SqliteStore(Store):
                 bs = deserialize_component(bs_data)
         else:
             bs = SqliteBlobStore(conn=backend_conn)
-        bs.start()
 
         vs_data = stored.get("vector_store")
         if vs_data is not None:
@@ -86,7 +85,6 @@ class SqliteStore(Store):
                 vs = deserialize_component(vs_data)
         else:
             vs = SqliteVectorStore(conn=backend_conn)
-        vs.start()
 
         notifier_data = stored.get("notifier")
         if notifier_data is not None:
@@ -105,8 +103,6 @@ class SqliteStore(Store):
             blob_store_conn_match=blob_store_conn_match and eager_blobs,
             page_size=page_size,
         )
-        metadata_store.start()
-
         backend: Backend[Any] = Backend(
             metadata_store=metadata_store,
             codec=codec,
@@ -161,13 +157,9 @@ class SqliteStore(Store):
 
         # Inject conn-shared instances unless user provided overrides
         if not isinstance(config.get("blob_store"), BlobStore):
-            bs = SqliteBlobStore(conn=backend_conn)
-            bs.start()
-            config["blob_store"] = bs
+            config["blob_store"] = SqliteBlobStore(conn=backend_conn)
         if not isinstance(config.get("vector_store"), VectorStore):
-            vs = SqliteVectorStore(conn=backend_conn)
-            vs.start()
-            config["vector_store"] = vs
+            config["vector_store"] = SqliteVectorStore(conn=backend_conn)
 
         # Resolve codec early — needed for SqliteObservationStore
         codec = self._resolve_codec(payload_type, config.get("codec"))
@@ -184,7 +176,6 @@ class SqliteStore(Store):
             blob_store_conn_match=blob_conn_match and eager_blobs,
             page_size=config.pop("page_size", self.config.page_size),
         )
-        obs_store.start()
         config["observation_store"] = obs_store
 
         backend = super()._create_backend(name, payload_type, **config)

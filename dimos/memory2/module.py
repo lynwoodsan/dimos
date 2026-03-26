@@ -17,8 +17,6 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from reactivex.disposable import Disposable
-
 from dimos.core.core import rpc
 from dimos.core.module import Module, ModuleConfigT
 from dimos.memory2.store.null import NullStore
@@ -59,27 +57,26 @@ class StreamModule(Module[ModuleConfigT]):
     def start(self) -> None:
         super().start()
 
-        inputs = self.inputs
-        outputs = self.outputs
-        if len(inputs) != 1 or len(outputs) != 1:
+        if len(self.inputs) != 1 or len(self.outputs) != 1:
             raise TypeError(
                 f"{self.__class__.__name__} must have exactly one In and one Out port, "
-                f"found {len(inputs)} In and {len(outputs)} Out"
+                f"found {len(self.inputs)} In and {len(self.outputs)} Out"
             )
 
-        ((in_name, inp_port),) = inputs.items()
-        ((_, out_port),) = outputs.items()
+        ((in_name, inp_port),) = self.inputs.items()
+        ((_, out_port),) = self.outputs.items()
 
         store = self.register_disposable(NullStore())
         store.start()
         stream: Stream[Any] = store.stream(in_name, inp_port.type)
 
-        unsub = inp_port.subscribe(lambda msg: stream.append(msg))
-        self.register_disposable(Disposable(unsub))
+        # we push input into the stream
+        inp_port.subscribe(lambda msg: stream.append(msg))
 
-        self._live = stream.live()
-        pipeline = self._apply_pipeline(self._live)
-        self.register_disposable(pipeline.publish(out_port))
+        # and we push stream output to the output port
+        self._apply_pipeline(stream.live()).subscribe(
+            lambda obs: out_port.publish(obs.data),
+        )
 
     def _apply_pipeline(self, stream: Stream[Any]) -> Stream[Any]:
         """Apply the pipeline to a live stream.
@@ -108,7 +105,4 @@ class StreamModule(Module[ModuleConfigT]):
 
     @rpc
     def stop(self) -> None:
-        # Close the live buffer so the pipeline iterator thread unblocks
-        if hasattr(self, "_live"):
-            self._live.stop()
         super().stop()

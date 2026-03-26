@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from dimos.core.resource import Resource
+from dimos.core.resource import CompositeResource
 from dimos.memory2.buffer import BackpressureBuffer, KeepLast
 from dimos.memory2.transform import FnIterTransformer, FnTransformer, Transformer
 from dimos.memory2.type.filter import (
@@ -46,15 +46,15 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
-class Stream(Resource, Generic[T]):
+class Stream(CompositeResource, Generic[T]):
     """Lazy, pull-based stream over observations.
 
     Every filter/transform method returns a new Stream — no computation
     happens until iteration. Backends handle query application for stored
     data; transform sources apply filters as Python predicates.
 
-    Implements Resource so live streams can be cleanly stopped via
-    ``stop()`` or used as a context manager.
+    Implements CompositeResource so subscriptions created via ``.subscribe()``
+    and ``.publish()`` are tracked and disposed on ``stop()``.
 
     An *unbound* stream (``Stream()``) records a chain of transforms
     without a real source. Use ``.chain()`` to apply it to a bound stream::
@@ -70,20 +70,22 @@ class Stream(Resource, Generic[T]):
         xf: Transformer[Any, T] | None = None,
         query: StreamQuery = StreamQuery(),
     ) -> None:
+        super().__init__()
         self._source = source
         self._xf = xf
         self._query = query
 
-    def start(self) -> None:
-        pass
-
     def stop(self) -> None:
-        """Close the live buffer (if any), unblocking iteration."""
+        """Close live buffer and dispose subscriptions."""
+        # Close live buffer first — unblocks iterator threads
         buf = self._query.live_buffer
         if buf is not None:
             buf.close()
+        # Recurse into source streams (not backends — Store owns those)
         if isinstance(self._source, Stream):
             self._source.stop()
+        # Dispose tracked subscriptions (from .subscribe())
+        super().stop()
 
     def __str__(self) -> str:
         # Walk the source chain to collect (xf, query) pairs
@@ -343,11 +345,16 @@ class Stream(Resource, Generic[T]):
         on_error: Callable[[Exception], None] | None = None,
         on_completed: Callable[[], None] | None = None,
     ) -> DisposableBase:
-        """Subscribe to this stream as an RxPY Observable."""
-        return self.observable().subscribe(  # type: ignore[call-overload]
-            on_next=on_next,
-            on_error=on_error,
-            on_completed=on_completed,
+        """Subscribe to this stream as an RxPY Observable.
+
+        The subscription is tracked and disposed when this stream is stopped.
+        """
+        return self.register_disposable(
+            self.observable().subscribe(  # type: ignore[call-overload]
+                on_next=on_next,
+                on_error=on_error,
+                on_completed=on_completed,
+            )
         )
 
     def publish(self, out: Any) -> DisposableBase:
