@@ -144,7 +144,7 @@ class ModuleCoordinator(Resource):  # type: ignore[misc]
         def _on_build_errors(
             _outcomes: list[Any], successes: list[Any], errors: list[Exception]
         ) -> None:
-            for mod in successes:
+            for mod in modules:
                 with suppress(Exception):
                     mod.stop()
             raise ExceptionGroup("build_all_modules failed", errors)
