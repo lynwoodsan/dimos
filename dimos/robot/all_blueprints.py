@@ -165,6 +165,8 @@ all_modules = {
     "temporal-memory": "dimos.perception.experimental.temporal_memory.temporal_memory",
     "twist-teleop-module": "dimos.teleop.quest.quest_extensions",
     "twitch-chat": "dimos.stream.twitch.module",
+    "twitch-vote-cmd-vel": "dimos.stream.twitch.vote_cmd_vel",
+    "twitch-votes": "dimos.stream.twitch.votes",
     "unitree-g1-skill-container": "dimos.robot.unitree.g1.skill_container",
     "unitree-skill-container": "dimos.robot.unitree.unitree_skill_container",
     "unity-bridge-module": "dimos.simulation.unity.module",

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""unitree-go2-twitch — Twitch Plays Go2.
+"""unitree-go2-twitch — Twitch Plays Go2 (demo).
 
 Viewers in Twitch chat vote on robot commands (!forward, !left, etc.).
 The winning command each voting window is sent to the Go2 via cmd_vel.
@@ -31,11 +31,13 @@ Or with custom voting::
 
 from dimos.core.blueprints import autoconnect
 from dimos.robot.unitree.go2.blueprints.basic.unitree_go2_basic import unitree_go2_basic
-from dimos.stream.twitch.module import TwitchChat
+from dimos.stream.twitch.vote_cmd_vel import VoteCmdVel
+from dimos.stream.twitch.votes import TwitchVotes
 
 unitree_go2_twitch = autoconnect(
     unitree_go2_basic,
-    TwitchChat.blueprint(),
+    TwitchVotes.blueprint(),
+    VoteCmdVel.blueprint(),
 ).global_config(n_workers=4, robot_model="unitree_go2")
 
 __all__ = ["unitree_go2_twitch"]

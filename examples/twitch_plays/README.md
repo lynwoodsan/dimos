@@ -2,6 +2,17 @@
 
 Control a Unitree Go2 quadruped via Twitch chat votes.
 
+## Architecture
+
+The Twitch integration is split into three modules:
+
+- **TwitchChat** (`dimos.stream.twitch.module`) — Base module that connects to
+  a Twitch channel and publishes `ChatMessage`s. Can optionally filter by keywords.
+- **TwitchVotes** (`dimos.stream.twitch.votes`) — Extends TwitchChat with vote
+  tallying. Publishes `VoteResult` (winning command + vote count) each window.
+- **VoteCmdVel** (`dimos.stream.twitch.vote_cmd_vel`) — Demo bridge that
+  converts `VoteResult` into `Twist` on `cmd_vel` for robot movement.
+
 ## Setup
 
 1. **Get Twitch credentials** from [twitchtokengenerator.com](https://twitchtokengenerator.com/):
@@ -65,23 +76,23 @@ All configurable via CLI flags or env vars (prefixed `DIMOS_`):
 | `--angular-speed` | 0.5 | Turning speed (rad/s) |
 | `--command-duration` | 1.0 | How long each command runs (s) |
 | `--bot-prefix` | `!` | Chat command prefix |
-| `--commands` | forward,back,left,right,stop | Valid keywords |
+| `--keywords` | forward,back,left,right,stop | Valid vote keywords |
 
 ## Example: Local Testing Without Twitch
 
 You can test the vote logic without a Twitch connection:
 
 ```python
-from dimos.stream.twitch.module import TwitchChat
+from dimos.stream.twitch.votes import TwitchVotes
 
 # Create module without credentials (local-only mode)
-chat = TwitchChat(vote_window_seconds=2.0, vote_mode="weighted_recent")
-chat.start()
+votes = TwitchVotes(vote_window_seconds=2.0, vote_mode="weighted_recent")
+votes.start()
 
 # Simulate votes programmatically
-chat.record_vote("forward", voter="user1")
-chat.record_vote("forward", voter="user2")
-chat.record_vote("left", voter="user3")
+votes.record_vote("forward", voter="user1")
+votes.record_vote("forward", voter="user2")
+votes.record_vote("left", voter="user3")
 
-# The vote loop will tally and publish cmd_vel automatically
+# The vote loop will tally and publish VoteResult on vote_results
 ```
