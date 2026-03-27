@@ -177,7 +177,7 @@ def _tally_runoff(votes: list[tuple[str, float, str]]) -> str | None:
         latest[voter] = cmd
 
     runoff_counts: Counter[str] = Counter()
-    for voter, cmd in latest.items():
+    for _voter, cmd in latest.items():
         if cmd in top2:
             runoff_counts[cmd] += 1
 
