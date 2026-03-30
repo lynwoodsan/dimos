@@ -32,6 +32,22 @@ def vis_module(
     Bundles the appropriate viewer module (Rerun or Foxglove) together with
     the ``RerunWebSocketServer`` so that the dimos-viewer keyboard/click
     events work out of the box.
+
+    Example usage::
+
+
+        from dimos.core.global_config import global_config
+        viz = vis_module(
+            global_config.viewer,
+            rerun_config={
+                "visual_override": {
+                    "world/camera_info": lambda ci: ci.to_rerun(...),
+                },
+                "static": {
+                    "world/tf/base_link": lambda rr: [rr.Boxes3D(...)],
+                },
+            },
+        )
     """
     from dimos.visualization.rerun.websocket_server import RerunWebSocketServer
 

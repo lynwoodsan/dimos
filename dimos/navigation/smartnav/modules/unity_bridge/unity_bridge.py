@@ -74,9 +74,7 @@ _SUPPORTED_SYSTEMS = {"Linux"}
 _SUPPORTED_ARCHS = {"x86_64", "AMD64"}
 
 
-# ---------------------------------------------------------------------------
 # TCP protocol helpers
-# ---------------------------------------------------------------------------
 
 
 def _recvall(sock: socket.socket, size: int) -> bytes:
@@ -117,9 +115,7 @@ def _write_tcp_command(sock: socket.socket, command: str, params: dict) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
 # Auto-download
-# ---------------------------------------------------------------------------
 
 
 def _download_unity_scene(scene: str, dest_dir: Path) -> Path:
@@ -182,9 +178,7 @@ def _download_unity_scene(scene: str, dest_dir: Path) -> Path:
     return binary
 
 
-# ---------------------------------------------------------------------------
 # Platform validation
-# ---------------------------------------------------------------------------
 
 
 def _validate_platform() -> None:
@@ -206,9 +200,7 @@ def _validate_platform() -> None:
         )
 
 
-# ---------------------------------------------------------------------------
 # Config
-# ---------------------------------------------------------------------------
 
 
 class UnityBridgeConfig(ModuleConfig):
@@ -262,9 +254,7 @@ class UnityBridgeConfig(ModuleConfig):
     sim_rate: float = 200.0
 
 
-# ---------------------------------------------------------------------------
 # Module
-# ---------------------------------------------------------------------------
 
 
 class UnityBridgeModule(Module[UnityBridgeConfig]):
@@ -325,7 +315,6 @@ class UnityBridgeModule(Module[UnityBridgeConfig]):
         """Suppress CameraInfo logging — the static pinhole handles 3D projection."""
         return None
 
-    # ---- lifecycle --------------------------------------------------------
 
     def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(**kwargs)
@@ -399,7 +388,6 @@ class UnityBridgeModule(Module[UnityBridgeConfig]):
             self._unity_process = None
         super().stop()
 
-    # ---- Unity process management -----------------------------------------
 
     def _resolve_binary(self) -> Path | None:
         """Find the Unity binary, downloading if needed. Returns None to skip launch."""
@@ -480,7 +468,6 @@ class UnityBridgeModule(Module[UnityBridgeConfig]):
                     f"The binary may still be loading — it will connect when ready."
                 )
 
-    # ---- input callbacks --------------------------------------------------
 
     def _on_cmd_vel(self, twist: Twist) -> None:
         with self._cmd_lock:
@@ -503,7 +490,6 @@ class UnityBridgeModule(Module[UnityBridgeConfig]):
             ground_z = float(np.percentile(near[:, 2], 10))
             self._terrain_z = 0.8 * self._terrain_z + 0.2 * ground_z
 
-    # ---- Unity TCP bridge -------------------------------------------------
 
     def _unity_loop(self) -> None:
         server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -648,7 +634,6 @@ class UnityBridgeModule(Module[UnityBridgeConfig]):
         if self._unity_connected:
             self._send_queue.put((topic, data))
 
-    # ---- kinematic sim loop -----------------------------------------------
 
     def _sim_loop(self) -> None:
         dt = 1.0 / self.config.sim_rate

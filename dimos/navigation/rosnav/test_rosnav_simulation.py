@@ -38,9 +38,11 @@ from dimos.core.blueprints import autoconnect
 from dimos.core.core import rpc
 from dimos.core.module import Module
 from dimos.core.stream import In
-from dimos.msgs.geometry_msgs import PoseStamped, Twist
-from dimos.msgs.nav_msgs import Path as NavPath
-from dimos.msgs.sensor_msgs import Image, PointCloud2
+from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
+from dimos.msgs.geometry_msgs.Twist import Twist
+from dimos.msgs.nav_msgs.Path import Path as NavPath
+from dimos.msgs.sensor_msgs.Image import Image
+from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 from dimos.navigation.rosnav.rosnav_module import ROSNav
 
 # Streams that should produce data in simulation mode without sending a goal.
@@ -68,7 +70,7 @@ STREAM_TIMEOUT_SEC = 360  # 6 minutes
 class StreamCollector(Module):
     """Test module that subscribes to all ROSNav output streams and records arrivals."""
 
-    image: In[Image]
+    color_image: In[Image]
     lidar: In[PointCloud2]
     global_pointcloud: In[PointCloud2]
     odom: In[PoseStamped]
@@ -77,8 +79,8 @@ class StreamCollector(Module):
     path: In[NavPath]
     cmd_vel: In[Twist]
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self._received: dict[str, float] = {}
         self._lock = threading.Lock()
         self._unsub_fns: list = []

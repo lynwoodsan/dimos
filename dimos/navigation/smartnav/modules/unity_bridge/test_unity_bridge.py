@@ -17,6 +17,8 @@
 import math
 import time
 
+import pytest
+
 from dimos.msgs.geometry_msgs.Twist import Twist
 from dimos.msgs.nav_msgs.Odometry import Odometry
 from dimos.navigation.smartnav.modules.unity_bridge.unity_bridge import UnityBridgeModule
@@ -49,11 +51,20 @@ class _MockTransport:
 class TestUnityBridge:
     """Test the kinematic vehicle simulator."""
 
+    @pytest.fixture(autouse=True)
+    def _cleanup(self):
+        self._modules: list[UnityBridgeModule] = []
+        yield
+        for m in self._modules:
+            m.stop()
+
     def _make_module(self, **kwargs) -> UnityBridgeModule:
         """Create a UnityBridgeModule with test config (kwargs go directly to constructor)."""
         defaults = dict(sim_rate=200.0, vehicle_height=0.75)
         defaults.update(kwargs)
-        return UnityBridgeModule(**defaults)
+        m = UnityBridgeModule(**defaults)
+        self._modules.append(m)
+        return m
 
     def test_initial_state(self):
         """Module starts at configured initial position."""
@@ -132,9 +143,17 @@ class TestUnityBridge:
 class TestUnityBridgeOdometryOutput:
     """Test odometry output from the simulator."""
 
+    @pytest.fixture(autouse=True)
+    def _cleanup(self):
+        self._modules: list[UnityBridgeModule] = []
+        yield
+        for m in self._modules:
+            m.stop()
+
     def test_odometry_publish(self):
         """Simulator should publish odometry messages."""
         module = UnityBridgeModule(sim_rate=200.0)
+        self._modules.append(module)
 
         # Wire a mock transport to the odometry output port
         odom_transport = _MockTransport()

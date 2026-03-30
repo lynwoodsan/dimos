@@ -42,9 +42,7 @@ from typing import Any
 
 import numpy as np
 
-# ---------------------------------------------------------------------------
 # Low-level readers
-# ---------------------------------------------------------------------------
 
 
 class ROS1Reader:
@@ -105,9 +103,7 @@ class ROS1Reader:
         return len(self.data) - self.off
 
 
-# ---------------------------------------------------------------------------
 # Low-level writer
-# ---------------------------------------------------------------------------
 
 
 class ROS1Writer:
@@ -154,9 +150,7 @@ class ROS1Writer:
         return bytes(self.buf)
 
 
-# ---------------------------------------------------------------------------
 # Header (std_msgs/Header)
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -181,9 +175,7 @@ def write_header(
     w.string(frame_id)
 
 
-# ---------------------------------------------------------------------------
 # sensor_msgs/PointCloud2
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -267,9 +259,7 @@ def deserialize_pointcloud2(data: bytes) -> tuple[np.ndarray, str, float] | None
         return None
 
 
-# ---------------------------------------------------------------------------
 # sensor_msgs/CompressedImage
-# ---------------------------------------------------------------------------
 
 
 def deserialize_compressed_image(data: bytes) -> tuple[bytes, str, str, float] | None:
@@ -289,9 +279,7 @@ def deserialize_compressed_image(data: bytes) -> tuple[bytes, str, str, float] |
         return None
 
 
-# ---------------------------------------------------------------------------
 # geometry_msgs/PoseStamped (serialize)
-# ---------------------------------------------------------------------------
 
 
 def serialize_pose_stamped(
@@ -319,9 +307,7 @@ def serialize_pose_stamped(
     return w.bytes()
 
 
-# ---------------------------------------------------------------------------
 # geometry_msgs/TwistStamped (serialize)
-# ---------------------------------------------------------------------------
 
 
 def serialize_twist_stamped(
@@ -347,9 +333,7 @@ def serialize_twist_stamped(
     return w.bytes()
 
 
-# ---------------------------------------------------------------------------
 # nav_msgs/Odometry (deserialize)
-# ---------------------------------------------------------------------------
 
 
 def deserialize_odometry(data: bytes) -> tuple[dict[str, Any], str, str, float] | None:

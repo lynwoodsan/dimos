@@ -13,17 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dimos.agents.mcp.mcp_client import McpClient
-from dimos.agents.mcp.mcp_server import McpServer
-from dimos.core.blueprints import autoconnect
-from dimos.robot.unitree.go2.blueprints.agentic._common_agentic import _common_agentic
-from dimos.robot.unitree.go2.blueprints.smart.unitree_go2_spatial import unitree_go2_spatial
+"""Basic G1 sim stack: base sensors plus sim connection and planner."""
 
-unitree_go2_agentic_mcp = autoconnect(
-    unitree_go2_spatial,
-    McpServer.blueprint(),
-    McpClient.blueprint(),
-    _common_agentic,
+from dimos.core.blueprints import autoconnect
+from dimos.navigation.replanning_a_star.module import ReplanningAStarPlanner
+from dimos.robot.unitree.g1.blueprints.primitive.uintree_g1_primitive_no_nav import (
+    uintree_g1_primitive_no_nav,
+)
+from dimos.robot.unitree.g1.sim import G1SimConnection
+
+unitree_g1_basic_sim = autoconnect(
+    uintree_g1_primitive_no_nav,
+    G1SimConnection.blueprint(),
+    ReplanningAStarPlanner.blueprint(),
 )
 
-__all__ = ["unitree_go2_agentic_mcp"]
+__all__ = ["unitree_g1_basic_sim"]

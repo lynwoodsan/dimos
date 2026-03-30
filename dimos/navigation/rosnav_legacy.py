@@ -224,7 +224,7 @@ class ROSNav(
         """
         pose_to = PoseStamped(
             position=Vector3(x, y, 0),
-            orientation=Quaternion(0.0, 0.0, 0.0, 0.0),
+            orientation=Quaternion(0.0, 0.0, 0.0, 1.0),
             frame_id="base_link",
             ts=time.time(),
         )
@@ -242,7 +242,7 @@ class ROSNav(
             ts=time.time(),
             frame_id="map",
             position=Vector3(x, y, 0.0),
-            orientation=Quaternion(0.0, 0.0, 0.0, 0.0),
+            orientation=Quaternion(0.0, 0.0, 0.0, 1.0),
         )
 
         self.navigate_to(target)
@@ -296,6 +296,9 @@ class ROSNav(
 
         self.ros_cancel_goal.publish(Bool(data=True))
         self.ros_soft_stop.publish(Int8(data=2))
+
+        # Unblock any waiting navigate_to() call
+        self._goal_reach = False
 
         with self._state_lock:
             self._navigation_state = NavigationState.IDLE

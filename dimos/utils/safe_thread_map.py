@@ -13,10 +13,10 @@
 # limitations under the License.
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-import os
 import sys
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 if sys.version_info < (3, 11):
 
@@ -33,25 +33,8 @@ else:
 
     ExceptionGroup = builtins.ExceptionGroup  # type: ignore[misc]
 
-if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
-
 T = TypeVar("T")
 R = TypeVar("R")
-
-_NOISE_PATHS = (
-    os.path.join("concurrent", "futures"),
-    "safe_thread_map.py",
-)
-
-
-def _strip_noise_frames(exc: Exception) -> Exception:
-    """Strip concurrent.futures and safe_thread_map frames from the top of a traceback."""
-    tb = exc.__traceback__
-    while tb is not None and any(p in tb.tb_frame.f_code.co_filename for p in _NOISE_PATHS):
-        tb = tb.tb_next
-    exc.__traceback__ = tb
-    return exc
 
 
 def safe_thread_map(
@@ -71,26 +54,6 @@ def safe_thread_map(
       If *on_errors* returns normally, its return value is returned from
       ``safe_thread_map``. If *on_errors* is ``None``, raises an
       ``ExceptionGroup``.
-
-    Example::
-
-        def start_service(name: str) -> Connection:
-            return connect(name)
-
-        def cleanup(
-            outcomes: list[tuple[str, Connection | Exception]],
-            successes: list[Connection],
-            errors: list[Exception],
-        ) -> None:
-            for conn in successes:
-                conn.close()
-            raise ExceptionGroup("failed to start services", errors)
-
-        connections = safe_thread_map(
-            ["db", "cache", "queue"],
-            start_service,
-            cleanup,  # called only if any start_service() raises
-        )
     """
     if not items:
         return []
@@ -104,10 +67,8 @@ def safe_thread_map(
             try:
                 outcomes[idx] = fut.result()
             except Exception as e:
-                outcomes[idx] = _strip_noise_frames(e)
+                outcomes[idx] = e
 
-    # Note: successes/errors are in completion order, not input order.
-    # This is fine — on_errors only needs them for cleanup, not ordering.
     successes: list[R] = []
     errors: list[Exception] = []
     for v in outcomes.values():
@@ -120,6 +81,6 @@ def safe_thread_map(
         if on_errors is not None:
             zipped = [(items[i], outcomes[i]) for i in range(len(items))]
             return on_errors(zipped, successes, errors)  # type: ignore[return-value, no-any-return]
-        raise ExceptionGroup("safe_thread_map failed", errors)  # type: ignore[name-defined]
+        raise ExceptionGroup("safe_thread_map failed", errors)
 
     return [outcomes[i] for i in range(len(items))]  # type: ignore[misc]

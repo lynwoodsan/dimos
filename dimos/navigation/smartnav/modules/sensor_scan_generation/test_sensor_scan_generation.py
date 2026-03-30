@@ -18,6 +18,7 @@ import math
 import time
 
 import numpy as np
+import pytest
 
 from dimos.msgs.geometry_msgs.Pose import Pose
 from dimos.msgs.geometry_msgs.Quaternion import Quaternion
@@ -86,24 +87,24 @@ def _wire_transports(module):
 class TestSensorScanGeneration:
     """Test SensorScanGeneration module transforms."""
 
+    @pytest.fixture(autouse=True)
+    def _create_module(self):
+        self.module = SensorScanGeneration()
+        self.scan_t, self.odom_t = _wire_transports(self.module)
+        yield
+        self.module.stop()
+
     def test_identity_transform(self):
         """When vehicle is at origin with zero rotation, sensor frame = world frame."""
-        module = SensorScanGeneration()
-        scan_t, _ = _wire_transports(module)
-
-        # Feed odometry at origin
         odom = make_odometry(0.0, 0.0, 0.0, 0.0)
-        module._on_odometry(odom)
+        self.module._on_odometry(odom)
 
-        # Create a cloud with known points
         world_points = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
         cloud = make_pointcloud(world_points)
 
-        # Capture published output
         results = []
-        scan_t.subscribe(lambda msg: results.append(msg))
-
-        module._on_scan(cloud)
+        self.scan_t.subscribe(lambda msg: results.append(msg))
+        self.module._on_scan(cloud)
 
         assert len(results) == 1
         sensor_points, _ = results[0].as_numpy()
@@ -111,20 +112,15 @@ class TestSensorScanGeneration:
 
     def test_translation_transform(self):
         """Points should be shifted by the inverse of the vehicle translation."""
-        module = SensorScanGeneration()
-        scan_t, _ = _wire_transports(module)
-
-        # Vehicle at (2, 3, 0)
         odom = make_odometry(2.0, 3.0, 0.0, 0.0)
-        module._on_odometry(odom)
+        self.module._on_odometry(odom)
 
-        # World point at (5, 3, 0) should be (3, 0, 0) in sensor frame
         world_points = np.array([[5.0, 3.0, 0.0]])
         cloud = make_pointcloud(world_points)
 
         results = []
-        scan_t.subscribe(lambda msg: results.append(msg))
-        module._on_scan(cloud)
+        self.scan_t.subscribe(lambda msg: results.append(msg))
+        self.module._on_scan(cloud)
 
         assert len(results) == 1
         sensor_points, _ = results[0].as_numpy()
@@ -132,21 +128,15 @@ class TestSensorScanGeneration:
 
     def test_rotation_transform(self):
         """Points should be rotated by the inverse of the vehicle rotation."""
-        module = SensorScanGeneration()
-        scan_t, _ = _wire_transports(module)
-
-        # Vehicle at origin, yaw = 90 degrees (pi/2)
         odom = make_odometry(0.0, 0.0, 0.0, math.pi / 2)
-        module._on_odometry(odom)
+        self.module._on_odometry(odom)
 
-        # World point at (1, 0, 0) should be approximately (0, -1, 0) in sensor frame
-        # because inverse of 90deg CCW rotation is 90deg CW
         world_points = np.array([[1.0, 0.0, 0.0]])
         cloud = make_pointcloud(world_points)
 
         results = []
-        scan_t.subscribe(lambda msg: results.append(msg))
-        module._on_scan(cloud)
+        self.scan_t.subscribe(lambda msg: results.append(msg))
+        self.module._on_scan(cloud)
 
         assert len(results) == 1
         sensor_points, _ = results[0].as_numpy()
@@ -154,48 +144,39 @@ class TestSensorScanGeneration:
 
     def test_no_odometry_no_output(self):
         """If no odometry has been received, no scan should be published."""
-        module = SensorScanGeneration()
-        scan_t, _ = _wire_transports(module)
-
         world_points = np.array([[1.0, 0.0, 0.0]])
         cloud = make_pointcloud(world_points)
 
         results = []
-        scan_t.subscribe(lambda msg: results.append(msg))
-        module._on_scan(cloud)
+        self.scan_t.subscribe(lambda msg: results.append(msg))
+        self.module._on_scan(cloud)
 
         assert len(results) == 0
 
     def test_empty_cloud(self):
         """Empty point cloud should produce empty output."""
-        module = SensorScanGeneration()
-        scan_t, _ = _wire_transports(module)
-
         odom = make_odometry(0.0, 0.0, 0.0)
-        module._on_odometry(odom)
+        self.module._on_odometry(odom)
 
         cloud = make_pointcloud(np.zeros((0, 3)))
 
         results = []
-        scan_t.subscribe(lambda msg: results.append(msg))
-        module._on_scan(cloud)
+        self.scan_t.subscribe(lambda msg: results.append(msg))
+        self.module._on_scan(cloud)
 
         assert len(results) == 1
         assert len(results[0]) == 0
 
     def test_odometry_at_scan_published(self):
         """Odometry at scan time should be published."""
-        module = SensorScanGeneration()
-        _, odom_out_t = _wire_transports(module)
-
         odom = make_odometry(1.0, 2.0, 3.0)
-        module._on_odometry(odom)
+        self.module._on_odometry(odom)
 
         cloud = make_pointcloud(np.array([[0.0, 0.0, 0.0]]))
 
         odom_results = []
-        odom_out_t.subscribe(lambda msg: odom_results.append(msg))
-        module._on_scan(cloud)
+        self.odom_t.subscribe(lambda msg: odom_results.append(msg))
+        self.module._on_scan(cloud)
 
         assert len(odom_results) == 1
         assert odom_results[0].frame_id == "map"

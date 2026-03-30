@@ -43,7 +43,7 @@ from dimos.robot.unitree.g1.blueprints.primitive._vis import (
     _convert_navigation_costmap,
     _static_base_link,
 )
-from dimos.robot.unitree.g1.legacy.sim import g1_sim_connection
+from dimos.robot.unitree.g1.legacy.sim import G1SimConnection
 from dimos.simulation.mujoco.constants import VIDEO_CAMERA_FOV, VIDEO_HEIGHT, VIDEO_WIDTH
 from dimos.visualization.vis_module import vis_module
 from dimos.web.websocket_vis.websocket_vis_module import WebsocketVisModule
@@ -95,7 +95,7 @@ unitree_g1_mujoco = (
         _vis_mujoco,
         _mapper,
         WebsocketVisModule.blueprint(),
-        g1_sim_connection(),
+        G1SimConnection.blueprint(),
         ReplanningAStarPlanner.blueprint(),
     )
     .global_config(n_workers=4, robot_model="unitree_g1")

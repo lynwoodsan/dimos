@@ -69,9 +69,7 @@ pytestmark = [
 ]
 
 
-# ---------------------------------------------------------------------------
 # Helpers (must be at module level for pickling)
-# ---------------------------------------------------------------------------
 
 
 def _make_room_cloud(
@@ -260,9 +258,7 @@ class Collector:
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
-# ---------------------------------------------------------------------------
 # Test
-# ---------------------------------------------------------------------------
 
 
 def test_explore_produces_movement():

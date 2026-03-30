@@ -30,7 +30,7 @@ from dimos.core.core import rpc
 from dimos.core.module import Module, ModuleConfig, SkillInfo
 from dimos.core.rpc_client import RpcCall, RPCClient
 from dimos.core.stream import In, Out
-from dimos.protocol.rpc.spec import RPCSpec
+from dimos.protocol.rpc.spec import DEFAULT_RPC_TIMEOUT, RPCSpec
 from dimos.spec.utils import Spec
 from dimos.utils.logging_config import setup_logger
 
@@ -227,7 +227,7 @@ class AgentSpec(Spec, Protocol):
 
 def _skill_to_tool(agent: Agent, skill: SkillInfo, rpc: RPCSpec) -> StructuredTool:
     rpc_call = RpcCall(
-        None, rpc, skill.func_name, skill.class_name, [], timeout=RPCClient.default_rpc_timeout
+        None, rpc, skill.func_name, skill.class_name, [], timeout=DEFAULT_RPC_TIMEOUT
     )
 
     def wrapped_func(*args: Any, **kwargs: Any) -> str | list[dict[str, Any]]:

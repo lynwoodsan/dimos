@@ -65,6 +65,9 @@ class SensorScanGeneration(Module):
         self.odometry._transport.subscribe(self._on_odometry)
         self.registered_scan._transport.subscribe(self._on_scan)
 
+    def stop(self) -> None:
+        super().stop()
+
     def _on_odometry(self, odom: Odometry) -> None:
         with self._lock:
             self._latest_odom = odom

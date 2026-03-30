@@ -13,12 +13,10 @@
 # limitations under the License.
 from __future__ import annotations
 
-import ctypes
 import logging
 import multiprocessing
 from multiprocessing.connection import Connection
 import os
-from pathlib import Path
 import sys
 import threading
 import traceback
@@ -277,75 +275,6 @@ class Worker:
                 self._process.terminate()
                 self._process.join(timeout=1)
             self._process = None
-
-
-def _preload_bundled_native_libs() -> None:
-    """Pre-load bundled native libs in site-packages to reserve static TLS slots.
-
-    WHY THIS IS NECESSARY
-    =====================
-    Some native libraries (torch's libc10.so, libgomp variants, etc.) use
-    *static* TLS — thread-local slots that must be reserved in the fixed-size
-    TLS block allocated when a thread is created. If such a library is loaded
-    lazily via dlopen *after* threads exist, the kernel can't retroactively
-    grow the existing TLS blocks and the load fails:
-        "cannot allocate memory in static TLS block"
-
-    This hits reliably on aarch64 because glibc there has little slack TLS
-    space, whereas x86_64 glibc reserves ~2 KB of headroom as a workaround.
-
-    We use forkserver workers (fresh processes, not fork). Each worker starts
-    with an empty TLS block, then the first module __init__ may lazily import
-    torch/sklearn/etc., triggering dlopen on a static-TLS lib too late.
-
-    THE FIX
-    =======
-    Call ctypes.CDLL on the known static-TLS offenders at the very start of
-    the worker — before any module code runs, before any threads are created.
-    dlopen is reference-counted and idempotent, so later imports that re-open
-    the same lib just bump the refcount and succeed.
-
-    SCOPE — WHY NOT SCAN EVERYTHING
-    ================================
-    aarch64 glibc provides very little surplus TLS slack. If we preload too
-    many static-TLS libs the block fills up and the NEXT lazy load fails. We
-    use a targeted approach — only the libs known to be needed by this stack:
-      - torch/lib/libc10.so, libtorch_cpu.so  — torch's core static-TLS libs
-      - torch/lib/libgomp.so.1                 — torch's bundled OpenMP
-      - *.libs/libgomp*.so*                    — auditwheel-bundled libgomp
-                                                 from sklearn, scipy, etc.
-
-    TODO: a more correct generic approach is to scan *.libs/ and */lib/ in
-    site-packages and filter to files with a PT_TLS ELF segment (type=7).
-    This was implemented and verified to find exactly 29 files vs 313 total,
-    but on this Jetson the combined static TLS of those 29 libs + their
-    transitive system-lib dependencies (libGLdispatch, etc.) exceeds the
-    aarch64 TLS block. The targeted approach avoids pulling in GL/Qt libs
-    whose static TLS we don't need for the compute + robotics stack here.
-    """
-    for entry in sys.path:
-        sp = Path(entry)
-        if not sp.is_dir():
-            continue
-
-        # torch's key static-TLS libs — libc10.so is the primary offender
-        torch_lib = sp / "torch" / "lib"
-        if torch_lib.is_dir():
-            for name in ("libc10.so", "libtorch_cpu.so", "libgomp.so.1"):
-                p = torch_lib / name
-                if p.exists():
-                    try:
-                        ctypes.CDLL(str(p))
-                    except OSError:
-                        pass
-
-        # auditwheel-bundled libgomp variants (sklearn, scipy, pygame, etc.)
-        for p in sp.glob("*.libs/libgomp*.so*"):
-            if p.is_file():
-                try:
-                    ctypes.CDLL(str(p))
-                except OSError:
-                    pass
 
 
 def _suppress_console_output() -> None:
