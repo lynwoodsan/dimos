@@ -150,7 +150,6 @@ class G1SimConnection(G1ConnectionBase[G1SimConfig]):
         return self.connection.publish_request(topic, data)
 
 
-g1_sim_connection = G1SimConnection.blueprint
 
 
-__all__ = ["G1SimConnection", "g1_sim_connection"]
+__all__ = ["G1SimConnection"]

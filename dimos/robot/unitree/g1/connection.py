@@ -112,7 +112,6 @@ class G1Connection(G1ConnectionBase[G1Config]):
         return self.connection.publish_request(topic, data)  # type: ignore[no-any-return]
 
 
-g1_connection = G1Connection.blueprint
 
 
 def deploy(dimos: ModuleCoordinator, ip: str, local_planner: LocalPlanner) -> "ModuleProxy":

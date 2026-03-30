@@ -142,7 +142,7 @@ all_modules = {
     "g1-connection-base": "dimos.robot.unitree.g1.connection.G1ConnectionBase",
     "g1-high-level-dds-sdk": "dimos.robot.unitree.g1.effectors.high_level.dds_sdk.G1HighLevelDdsSdk",
     "g1-high-level-web-rtc": "dimos.robot.unitree.g1.effectors.high_level.webrtc.G1HighLevelWebRtc",
-    "g1-sim-connection": "dimos.robot.unitree.g1.sim.G1SimConnection",
+    "g1-sim-connection": "dimos.robot.unitree.g1.mujoco_sim.G1SimConnection",
     "global-map": "dimos.navigation.smartnav.modules.global_map.global_map.GlobalMap",
     "go2-connection": "dimos.robot.unitree.go2.connection.GO2Connection",
     "go2-fleet-connection": "dimos.robot.unitree.go2.fleet_connection.Go2FleetConnection",

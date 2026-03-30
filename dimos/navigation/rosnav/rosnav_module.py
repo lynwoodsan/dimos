@@ -815,7 +815,6 @@ class ROSNav(Module, NavigationInterface):
             super().stop()
 
 
-ros_nav = ROSNav.blueprint
 
 
 def _pose_stamped_to_ros(pose: PoseStamped) -> "ROSPoseStamped":
