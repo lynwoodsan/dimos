@@ -33,7 +33,9 @@ class FarPlannerConfig(NativeModuleConfig):
 
     cwd: str | None = "."
     executable: str = "result/bin/far_planner"
-    build_command: str | None = "nix build github:dimensionalOS/dimos-module-far-planner/v0.1.0 --no-write-lock-file"
+    build_command: str | None = (
+        "nix build github:dimensionalOS/dimos-module-far-planner/v0.1.0 --no-write-lock-file"
+    )
 
     # Planner parameters
     visibility_range: float = 15.0

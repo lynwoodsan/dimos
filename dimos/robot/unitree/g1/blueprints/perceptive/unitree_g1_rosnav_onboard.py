@@ -20,12 +20,9 @@ import os
 from dimos.core.blueprints import autoconnect
 from dimos.navigation.replanning_a_star.module import ReplanningAStarPlanner
 from dimos.navigation.rosnav.rosnav_module import ROSNav
-from dimos.robot.unitree.g1.blueprints.basic.unitree_g1_onboard import unitree_g1_onboard
-from dimos.web.websocket_vis.websocket_vis_module import WebsocketVisModule
 from dimos.robot.unitree.g1.blueprints.primitive._mapper import _mapper
 from dimos.robot.unitree.g1.blueprints.primitive._vis import _vis
 from dimos.robot.unitree.g1.effectors.high_level.dds_sdk import G1HighLevelDdsSdk
-
 
 unitree_g1_rosnav_onboard = (
     autoconnect(

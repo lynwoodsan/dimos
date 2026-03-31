@@ -112,8 +112,6 @@ class G1Connection(G1ConnectionBase[G1Config]):
         return self.connection.publish_request(topic, data)  # type: ignore[no-any-return]
 
 
-
-
 def deploy(dimos: ModuleCoordinator, ip: str, local_planner: LocalPlanner) -> "ModuleProxy":
     connection = dimos.deploy(G1Connection, ip=ip)
     connection.cmd_vel.connect(local_planner.cmd_vel)
@@ -121,4 +119,4 @@ def deploy(dimos: ModuleCoordinator, ip: str, local_planner: LocalPlanner) -> "M
     return connection
 
 
-__all__ = ["G1Connection", "G1ConnectionBase", "deploy", "g1_connection"]
+__all__ = ["G1Connection", "G1ConnectionBase", "deploy"]

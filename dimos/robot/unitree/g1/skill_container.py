@@ -155,4 +155,4 @@ Here are all the command names and what they do.
 """
 
 
-__all__ = ["UnitreeG1SkillContainer", "g1_skills"]
+__all__ = ["UnitreeG1SkillContainer"]

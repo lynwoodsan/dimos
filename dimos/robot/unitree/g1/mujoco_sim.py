@@ -150,6 +150,4 @@ class G1SimConnection(G1ConnectionBase[G1SimConfig]):
         return self.connection.publish_request(topic, data)
 
 
-
-
 __all__ = ["G1SimConnection"]

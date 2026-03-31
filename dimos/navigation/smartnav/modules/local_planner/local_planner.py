@@ -42,7 +42,9 @@ class LocalPlannerConfig(NativeModuleConfig):
 
     cwd: str | None = "."
     executable: str = "result/bin/local_planner"
-    build_command: str | None = "nix build github:dimensionalOS/dimos-module-local-planner/v0.1.1 --no-write-lock-file"
+    build_command: str | None = (
+        "nix build github:dimensionalOS/dimos-module-local-planner/v0.1.1 --no-write-lock-file"
+    )
 
     # Path data directory (auto-resolved from LFS)
     paths_dir: str = ""

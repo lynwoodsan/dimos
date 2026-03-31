@@ -31,7 +31,9 @@ class TerrainAnalysisConfig(NativeModuleConfig):
 
     cwd: str | None = "."
     executable: str = "result/bin/terrain_analysis"
-    build_command: str | None = "nix build github:dimensionalOS/dimos-module-terrain-analysis/v0.1.0 --no-write-lock-file"
+    build_command: str | None = (
+        "nix build github:dimensionalOS/dimos-module-terrain-analysis/v0.1.0 --no-write-lock-file"
+    )
 
     # Terrain analysis parameters
     sensor_range: float = 20.0

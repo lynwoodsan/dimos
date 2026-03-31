@@ -815,8 +815,6 @@ class ROSNav(Module, NavigationInterface):
             super().stop()
 
 
-
-
 def _pose_stamped_to_ros(pose: PoseStamped) -> "ROSPoseStamped":
     """Convert a DimOS PoseStamped to a ROS2 geometry_msgs/PoseStamped."""
     msg = ROSPoseStamped()
@@ -1058,7 +1056,7 @@ def _odometry_to_ros(odom: Odometry) -> "ROSOdometry":
     return ros_msg
 
 
-__all__ = ["ROSNav", "ros_nav"]
+__all__ = ["ROSNav"]
 
 if __name__ == "__main__":
     ROSNav.blueprint().build()
