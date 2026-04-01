@@ -101,15 +101,14 @@ rerun_config: dict[str, Any] = {
     },
 }
 
-if sys.platform == "darwin":
-    _shm_overrides: dict[tuple[str, type], pSHMTransport[Image]] = {
-        ("depth_image", Image): pSHMTransport(
-            "/depth_image", default_capacity=DEFAULT_CAPACITY_COLOR_IMAGE
-        ),
-        ("tracking_image", Image): pSHMTransport(
-            "/tracking_image", default_capacity=DEFAULT_CAPACITY_COLOR_IMAGE
-        ),
-    }
+_shm_overrides: dict[tuple[str, type], pSHMTransport[Image]] = {} if sys.platform != "darwin" else {
+    ("depth_image", Image): pSHMTransport(
+        "/depth_image", default_capacity=DEFAULT_CAPACITY_COLOR_IMAGE
+    ),
+    ("tracking_image", Image): pSHMTransport(
+        "/tracking_image", default_capacity=DEFAULT_CAPACITY_COLOR_IMAGE
+    ),
+}
 
 
 unitree_go2_security = (
