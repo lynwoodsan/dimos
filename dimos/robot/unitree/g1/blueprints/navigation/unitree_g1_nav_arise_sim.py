@@ -15,6 +15,8 @@
 
 """G1 nav sim with AriseSLAM — tests SLAM in simulation.
 
+WARNING: This is how AriseSLAM should be used, but it is untested.
+
 Instead of using Unity's ground-truth odometry, this blueprint feeds
 the sim's lidar + synthetic IMU into AriseSLAM, which estimates the
 pose via scan-to-map matching. This lets you test and tune SLAM

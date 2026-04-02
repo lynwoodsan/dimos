@@ -15,6 +15,8 @@
 
 """G1 with AriseSLAM on real hardware.
 
+WARNING: This is how AriseSLAM should be used, but it is untested.
+
 Uses the C++ AriseSLAM module (feature-based LiDAR-IMU SLAM) instead of
 FastLio2. The raw Mid-360 driver provides body-frame point clouds and IMU
 data; AriseSLAM produces world-frame registered scans and odometry that feed
