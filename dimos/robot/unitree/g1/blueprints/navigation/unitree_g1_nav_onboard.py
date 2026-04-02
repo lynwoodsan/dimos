@@ -198,6 +198,8 @@ unitree_g1_nav_onboard = (
         [
             # FastLio2 outputs "lidar"; SmartNav modules expect "registered_scan"
             (FastLio2, "lidar", "registered_scan"),
+            (FastLio2, "global_map", "global_map_fastlio"),
+            (PGO, "global_map", "global_map_pgo"),
             # PathFollower cmd_vel → CmdVelMux nav input (avoid name collision with mux output)
             (PathFollower, "cmd_vel", "nav_cmd_vel"),
             # Global-scale planners use PGO-corrected odometry (per CMU ICRA 2022):
