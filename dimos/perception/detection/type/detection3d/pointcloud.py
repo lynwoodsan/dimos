@@ -337,6 +337,33 @@ class Detection3DPC(Detection3D):
             frame_id=world_pointcloud.frame_id,
         )
 
+    def to_pose(self, frame_id: str | None = None) -> PoseStamped:
+        """Convert detection to a PoseStamped for use as a navigation goal.
+
+        Method version of the :attr:`pose` cached property with an optional
+        *frame_id* override.  Useful for navigating directly to detected
+        objects::
+
+            det3d = detect("red chair", image).project(cloud, cam_info, tf)
+            nav.set_goal(det3d.to_pose("map"))
+
+        Args:
+            frame_id: Override the coordinate frame ID.  Defaults to
+                ``self.frame_id`` (the pointcloud's world frame).
+
+        Returns:
+            :class:`~dimos.msgs.geometry_msgs.PoseStamped.PoseStamped` at the
+            detection's 3D centroid with identity rotation (upright pose).
+        """
+        if frame_id is None:
+            return self.pose
+        return PoseStamped(
+            ts=self.ts,
+            frame_id=frame_id,
+            position=self.center,
+            orientation=(0.0, 0.0, 0.0, 1.0),
+        )
+
     def to_vector(self) -> Vector3:
         """Get 3D center position as Vector3.
 

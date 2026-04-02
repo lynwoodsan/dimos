@@ -22,7 +22,9 @@ if TYPE_CHECKING:
     from typing_extensions import Self
     from ultralytics.engine.results import Results  # type: ignore[import-not-found]
 
+    from dimos.msgs.geometry_msgs.Twist import Twist
     from dimos.msgs.sensor_msgs.Image import Image
+    from dimos.perception.detection.tracker import Tracker
 
 from dimos_lcm.foxglove_msgs.ImageAnnotations import (
     PointsAnnotation,
@@ -405,6 +407,69 @@ class Detection2DBBox(Detection2D):
             ],
             id=str(self.track_id),
         )
+
+    def servo(
+        self,
+        camera_info: CameraInfo,  # type: ignore[name-defined]
+        *,
+        simulation: bool = False,
+    ) -> Twist:  # type: ignore[name-defined]
+        """Compute a Twist to servo the robot towards this detection.
+
+        Wraps :class:`~dimos.navigation.visual_servoing.visual_servoing_2d.VisualServoing2D`
+        inline so you don't need to instantiate it separately::
+
+            twist = detect("person", image).servo(cam_info)
+            cmd_vel.publish(twist)
+
+        Args:
+            camera_info: Camera calibration info (``CameraInfo`` or ``LcmCameraInfo``).
+            simulation: ``True`` when running in simulation — enables minimum
+                linear speed when rotating in place (needed for some sim physics).
+
+        Returns:
+            :class:`~dimos.msgs.geometry_msgs.Twist.Twist` steering the robot
+            towards the centre of this bounding box.
+        """
+        from dimos.navigation.visual_servoing.visual_servoing_2d import VisualServoing2D
+
+        servo = VisualServoing2D(camera_info, simulation)
+        return servo.compute_twist(self.bbox, self.image.width)
+
+    def track(self, image: Image | None = None) -> Tracker:  # type: ignore[name-defined]
+        """Initialize an EdgeTAM tracker seeded with this detection.
+
+        Returns a :class:`~dimos.perception.detection.tracker.Tracker` that
+        accepts :meth:`~dimos.perception.detection.tracker.Tracker.update` calls
+        with subsequent frames::
+
+            tracker = detect("person", image).track()
+
+            while running:
+                dets = tracker.update(camera.get_next())
+                if dets:
+                    cmd_vel.publish(dets[0].servo(cam_info))
+
+            tracker.stop()
+
+        Args:
+            image: Frame on which this detection was made.  Defaults to
+                ``self.image``.  Pass an explicit value when the detection
+                was made on a different frame than what EdgeTAM should use
+                for initialization (rare).
+
+        Returns:
+            :class:`~dimos.perception.detection.tracker.Tracker` ready for
+            ``.update()`` calls.
+
+        Raises:
+            RuntimeError: If EdgeTAM is unavailable (no CUDA or missing model
+                checkpoint).  Check ``torch.cuda.is_available()`` and whether
+                the EdgeTAM weights have been downloaded.
+        """
+        from dimos.perception.detection.tracker import Tracker
+
+        return Tracker.from_detection(self, image)
 
     def project(
         self,
