@@ -50,8 +50,9 @@ from typing import Any, TypedDict
 import rerun as rr
 
 from dimos.memory2.store.sqlite import SqliteStore
-from dimos.protocol.pubsub.impl.lcmpubsub import LCMPubSubBase, Topic
-from dimos.visualization.rerun.bridge import RerunConvertible, is_rerun_multi
+from dimos.protocol.pubsub.impl.lcmpubsub import Topic
+from dimos.protocol.pubsub.spec import AllPubSub
+from dimos.protocol.service.spec import Service
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -129,18 +130,12 @@ class RecordReplay:
 
     def start_recording(
         self,
-        pubsubs: Collection[LCMPubSubBase],
+        pubsubs: Collection[AllPubSub[Any, Any]],
         topic_filter: Container[str] | None = None,
     ) -> None:
         """Start recording messages from the given pubsubs.
 
-        Each pubsub is subscribed via ``subscribe_all()``. Messages are
-        stored in per-topic streams with automatic codec selection.
-
-        Args:
-            pubsubs: List of pubsubs to subscribe to.
-            topic_filter: If provided, only record topics whose sanitized
-                stream name is in this set. If ``None``, record everything.
+        Accepts any ``AllPubSub`` (LCM, SHM, etc).
         """
         if self._recording:
             raise RuntimeError("Already recording")
@@ -148,7 +143,8 @@ class RecordReplay:
         self._topic_filter = topic_filter
 
         for pubsub in pubsubs:
-            pubsub.start()
+            if isinstance(pubsub, Service):
+                pubsub.start()
             unsub = pubsub.subscribe_all(self._on_message)
             self._unsubscribes.append(unsub)
 
