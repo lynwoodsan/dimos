@@ -1,45 +1,9 @@
 {
-  "session": 3,
-  "timestamp": "2026-04-04T08:20:00-07:00",
-  "branch": "jeff/fix/rosnav5",
-  "commits": [
-    "90c5a37 — fix PathFollower maxYawRate unit mismatch (1.5→80 deg/s)",
-    "3671eb9 — disable freeze logic for omni-dir robot (freezeAng=180), expose local planner params",
-    "0148c2e — omni-dir acceleration change (REVERTED in d1463f0)",
-    "d1463f0 — revert omni-dir mode: robot turns to face movement direction"
-  ],
-  "test_results": {
-    "p0_forward": {
-      "status": "pass",
-      "details": "Robot reaches (6,0) from (0,0). ~11s total including ClickToGoal relay delay. Routes north around wall (suboptimal but functional)."
-    },
-    "p0_backward": {
-      "status": "pass",
-      "details": "Robot reaches (-6,0) from current position. Robot turns to face direction."
-    },
-    "cross_wall_right": {
-      "status": "pass", 
-      "details": "Robot at (0,0) → (5,0) across wall at x≈3. Routes south around wall bottom (y<-1.1). 3-node path."
-    },
-    "cross_wall_left": {
-      "status": "pass",
-      "details": "Robot at (6.3,0) → (1,0) across wall. Successfully routes around wall. 3-node path."
-    },
-    "teleop": {
-      "status": "pass",
-      "details": "Works correctly (from previous sessions)."
-    }
-  },
-  "findings": {
-    "wall_polygon": "Wall detected as poly with vertices at (2.9,-1.0) to (4.3,1.6). Contour detection produces proper closed polygon from accumulated obstacle cloud via MapHandler.",
-    "cross_wall_routing": "Working! IsNavNodesConnectFreePolygon correctly blocks edges through wall polygon. IsEdgeBlockedByObstacles ray-cast blocks a few additional edges. Robot routes around wall via contour nodes at wall corners.",
-    "path_quality": "For p0_forward, robot sometimes goes NORTH around wall (y≈2.6) instead of south (y≈-1.1). Both valid but north is longer. This is a graph connectivity issue — the initial contour nodes may have better visibility edges going north.",
-    "goal_edges": "Goal typically connects to 6-9 nodes out of 24-40 total. Polygon collision blocks 17-28 edges, ray-cast blocks 0-2.",
-    "omni_dir_reverted": "omni_dir_goal_threshold=0.5, no omni_dir_diff_threshold. Robot turns to face movement direction as requested."
-  },
-  "remaining_issues": {
-    "path_optimality": "Robot sometimes takes longer path around wall. Could be improved with more exploration or better graph connectivity.",
-    "clicktogal_spurious": "ClickToGoal sets goal to current position on stop_movement, causing FAR to chase spurious goals. Not fixed.",
-    "sim_stability": "DimOS sim process sometimes exits unexpectedly. Not related to navigation changes."
-  }
+  "phase": "cross-wall routing - WORKING",
+  "status": "done",
+  "last_test_result": "p1→p2 cross-wall: PASS. Robot navigated from (-4.71,1.29) to (3.69,2.04) via open corridor in ~18s. Goal reprojection working.",
+  "p0_passed": true,
+  "p1_p2_passed": true,
+  "teleop_passed": true,
+  "notes": "## Session Summary\n\n### Fixes Applied (far_planner repo commit e31e186)\n\n1. **ReprojectPointOutsidePolygons**: When goal is placed inside obstacle polygon (room furniture/walls), reproject to just outside the polygon boundary. Prevents 'connected=0' dead-lock when goal is inside a closed polygon.\n\n2. **Center-point polygon check**: Changed IsNavNodesConnectFreePolygon to use the reference's center-point same-side test: block edge only if edge center is on OPPOSITE side from robot. Allows edges that stay within same free-space region (room interior or corridor) without false-blocking.\n\n3. **2D convergence**: Changed goal-reached check to use norm_flat() (2D distance) instead of norm() (3D). Fixes the 1.3m '3D distance' bug where robot z=1.24 but goal z=0 prevented convergence at 0.34m 2D distance.\n\n4. **Path momentum**: Added heading consistency check to prevent oscillation between two competing routes.\n\n### Test Results\n- p0 forward: 11s ✓\n- p0 backward: 21s ✓ (longer due to exploring both corridors first)\n- Cross-wall (p1→p2): robot navigates from left area to right area via open corridor\n- The robot routes through y≈0.5-2.0 (open corridor) not through y≈2.7-4.4 (room walls)\n\n### Architecture Understanding\nThe room layout has:\n- Open corridor: y<2.5 (all open)\n- Room south boundary: y≈2.4-2.8 (polygon boundary)\n- Room interior: y=2.8-4.4 (enclosed by furniture polygon)\n- The 'wall' between p1 and p2 is the room furniture polygon\n- The 'doorway' is actually the open corridor below the room boundary\n\n### Remaining Notes\n- p0 times: 11s forward, 21s backward (acceptable)\n- Cross-wall convergence happens at y≈2.0 (goal reprojected to room south boundary)\n- Robot doesn't enter deep into rooms (y>2.7) but can navigate between room areas\n- Memory leak: VIEWER=none reduces memory significantly; run without rerun in production"
 }
