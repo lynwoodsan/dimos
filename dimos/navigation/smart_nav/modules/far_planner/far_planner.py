@@ -37,14 +37,8 @@ class FarPlannerConfig(NativeModuleConfig):
     # Build from the vendored local source in ./repo so we can patch the C++.
     cwd: str | None = str(Path(__file__).resolve().parent / "repo")
     executable: str = "result/bin/far_planner"
-    build_command: str | None = (
-        "nix build github:dimensionalOS/dimos-module-far-planner/v0.2.0 --no-write-lock-file"
-    )
-    # TODO: remove below after finish testing
-    # build_command: str | None = "nix build ./repo --no-write-lock-file"
-    # rebuild_on_change: list[str] | None = [  # type: ignore[assignment]
-    # "repo/main.cpp",
-    # ]
+    build_command: str | None = "nix build --no-write-lock-file"
+    rebuild_on_change: list[str] = ["main.cpp"]  # type: ignore[assignment]
 
     # C++ binary uses snake_case CLI args.
     cli_name_override: dict[str, str] = {

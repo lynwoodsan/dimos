@@ -47,9 +47,8 @@ class LocalPlannerConfig(NativeModuleConfig):
     # Build from the vendored local source in ./repo so we can patch the C++.
     cwd: str | None = str(Path(__file__).resolve().parent / "repo")
     executable: str = "result/bin/local_planner"
-    build_command: str | None = (
-        "nix build github:dimensionalOS/dimos-module-local-planner/v0.1.1 --no-write-lock-file"
-    )
+    build_command: str | None = "nix build --no-write-lock-file"
+    rebuild_on_change: list[str] = ["main.cpp"]  # type: ignore[assignment]
 
     # C++ binary uses camelCase CLI args (except paths_dir).
     cli_name_override: dict[str, str] = {
