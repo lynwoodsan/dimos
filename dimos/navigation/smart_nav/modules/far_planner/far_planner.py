@@ -33,23 +33,21 @@ from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 
 class FarPlannerConfig(NativeModuleConfig):
     """Config for the FAR planner native module."""
-
-<<<<<<< Updated upstream
-    cwd: str | None = str(Path(__file__).resolve().parent)
-    executable: str = "result/bin/far_planner"
-    build_command: str | None = (
-        "nix build github:dimensionalOS/dimos-module-far-planner/v0.2.0 --no-write-lock-file"
-    )
-=======
+    
+    # cwd: str | None = str(Path(__file__).resolve().parent)
+    # executable: str = "result/bin/far_planner"
+    # build_command: str | None = (
+    #     "nix build github:dimensionalOS/dimos-module-far-planner/v0.2.0 --no-write-lock-file"
+    # )
+    
     # Build from the vendored local source in ./repo so we can patch the C++.
     cwd: str | None = str(Path(__file__).resolve().parent / "repo")
     executable: str = "result/bin/far_planner_native"
     build_command: str | None = (
         "test -d .git || (git init -q && git add -A && git commit -q --allow-empty -m build) && "
-        "NIXPKGS_ALLOW_BROKEN=1 nix build --no-write-lock-file --impure"
+        "nix build --no-write-lock-file"
     )
     rebuild_on_change: list[str] = ["main.cpp"]  # type: ignore[assignment]
->>>>>>> Stashed changes
 
     # C++ binary uses snake_case CLI args.
     cli_name_override: dict[str, str] = {
