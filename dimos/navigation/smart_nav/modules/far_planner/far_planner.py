@@ -34,27 +34,79 @@ from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 class FarPlannerConfig(NativeModuleConfig):
     """Config for the FAR planner native module."""
 
+<<<<<<< Updated upstream
     cwd: str | None = str(Path(__file__).resolve().parent)
     executable: str = "result/bin/far_planner"
     build_command: str | None = (
         "nix build github:dimensionalOS/dimos-module-far-planner/v0.2.0 --no-write-lock-file"
     )
+=======
+    # Build from the vendored local source in ./repo so we can patch the C++.
+    cwd: str | None = str(Path(__file__).resolve().parent / "repo")
+    executable: str = "result/bin/far_planner_native"
+    build_command: str | None = (
+        "test -d .git || (git init -q && git add -A && git commit -q --allow-empty -m build) && "
+        "NIXPKGS_ALLOW_BROKEN=1 nix build --no-write-lock-file --impure"
+    )
+    rebuild_on_change: list[str] = ["main.cpp"]  # type: ignore[assignment]
+>>>>>>> Stashed changes
 
     # C++ binary uses snake_case CLI args.
     cli_name_override: dict[str, str] = {
         "robot_dimension": "robot_dim",
     }
 
-    # Planner parameters
-    visibility_range: float = 15.0
+    # --- Core planner parameters (mirrors LoadROSParams) ---
     update_rate: float = 5.0
     robot_dimension: float = 0.5
+    voxel_dim: float = 0.1
     sensor_range: float = 15.0
+    terrain_range: float = 7.5
+    local_planner_range: float = 2.5
+    vehicle_height: float = 0.75
     is_static_env: bool = False
+    is_viewpoint_extend: bool = True
+    is_multi_layer: bool = False
+    is_debug_output: bool = False
+    is_attempt_autoswitch: bool = True
+    world_frame: str = "map"
+
+    # --- Graph planner params ---
     converge_dist: float = 0.8
+    goal_adjust_radius: float = 10.0
+    free_counter_thred: int = 5
+    reach_goal_vote_size: int = 5
+    path_momentum_thred: int = 5
+
+    # --- Map handler params ---
+    floor_height: float = 2.0
+    cell_length: float = 5.0
+    map_grid_max_length: float = 1000.0
+    map_grad_max_height: float = 100.0
+
+    # --- Dynamic graph params ---
+    connect_votes_size: int = 10
+    clear_dumper_thred: int = 3
+    node_finalize_thred: int = 3
+    filter_pool_size: int = 12
+
+    # --- Contour detector params ---
+    resize_ratio: float = 5.0
+    filter_count_value: int = 5
+
+    # --- Utility params ---
+    angle_noise: float = 15.0
+    accept_max_align_angle: float = 15.0
+    new_intensity_thred: float = 2.0
+    dynamic_obs_decay_time: float = 10.0
+    new_points_decay_time: float = 2.0
+    dyobs_update_thred: int = 4
+    new_point_counter: int = 10
+    obs_inflate_size: int = 2
+    visualize_ratio: float = 0.4
 
 
-class FarPlanner(NativeModule):
+class FarPlanner(NativeModule[FarPlannerConfig]):
     """FAR planner: visibility-graph global route planner.
 
     Builds and maintains a visibility graph from classified terrain maps,
@@ -63,13 +115,15 @@ class FarPlanner(NativeModule):
 
     Ports:
         terrain_map_ext (In[PointCloud2]): Extended terrain map (classified obstacles).
-        registered_scan (In[PointCloud2]): Raw lidar scan (for future dynamic obs).
+        terrain_map (In[PointCloud2]): Scan-based terrain map (alternative input).
+        registered_scan (In[PointCloud2]): Raw lidar scan (for dynamic obs detection).
         odometry (In[Odometry]): Vehicle state (corrected by PGO).
         goal (In[PointStamped]): User-specified navigation goal.
         way_point (Out[PointStamped]): Intermediate waypoint for local planner.
+        goal_path (Out[NavPath]): Full planned path to goal.
     """
 
-    default_config: type[FarPlannerConfig] = FarPlannerConfig  # type: ignore[assignment]
+    default_config = FarPlannerConfig
 
     terrain_map_ext: In[PointCloud2]
     terrain_map: In[PointCloud2]

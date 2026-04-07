@@ -4,3 +4,5 @@ result
 
 # Cloned C++ source repos
 repo/
+# Exception: far_planner repo is vendored (not cloned)
+!modules/far_planner/repo/
