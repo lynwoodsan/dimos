@@ -116,10 +116,20 @@ def test_empty_paths_returns_false() -> None:
     assert did_change("empty_test", []) is False
 
 
-def test_nonexistent_path_warns() -> None:
+def test_nonexistent_path_warns(monkeypatch: pytest.MonkeyPatch) -> None:
     """A non-existent absolute path logs a warning and returns False (no files → skip rebuild)."""
+    warnings: list[tuple[str, dict]] = []
+
+    def fake_warning(msg: str, **kwargs: object) -> None:
+        warnings.append((msg, dict(kwargs)))
+
+    monkeypatch.setattr("dimos.utils.change_detect.logger.warning", fake_warning)
     result = did_change("missing_test", ["/nonexistent/path/to/file.c"])
     assert result is False
+    assert any(
+        "does not exist" in msg.lower() and kw.get("path") == "/nonexistent/path/to/file.c"
+        for msg, kw in warnings
+    ), f"expected 'Path does not exist' warning, got: {warnings}"
 
 
 def test_relative_path_without_cwd_raises() -> None:
