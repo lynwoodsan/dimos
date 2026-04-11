@@ -61,7 +61,7 @@ import dimos.robot.unitree.connection.go2 as _go2_mod
 from dimos.robot.unitree.connection.go2 import GO2Connection, go2_connection
 from dimos.robot.unitree_webrtc.unitree_skill_container import unitree_skills
 from dimos.utils.monitoring import utilization
-from dimos.web.websocket_vis.websocket_vis_module import websocket_vis
+from dimos.teleop.keyboard.doom_teleop import doom_teleop
 
 _GO2_URDF = Path(_go2_mod.__file__).parent.parent / "go2" / "go2.urdf"
 
