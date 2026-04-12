@@ -264,12 +264,16 @@ class NativeModule(Module):
 
     def _watch_process(self) -> None:
         """Block until the native process exits; trigger stop() if it crashed."""
-        if self._process is None:
+        # Cache the Popen reference and pid locally so a concurrent stop()
+        # setting self._process = None can't race us into an AttributeError.
+        proc = self._process
+        if proc is None:
             return
+        pid = proc.pid
 
-        stdout_t = self._start_reader(self._process.stdout, "info", self._stdout_tail)
-        stderr_t = self._start_reader(self._process.stderr, "warning", self._stderr_tail)
-        rc = self._process.wait()
+        stdout_t = self._start_reader(proc.stdout, "info", self._stdout_tail)
+        stderr_t = self._start_reader(proc.stderr, "warning", self._stderr_tail)
+        rc = proc.wait()
         stdout_t.join(timeout=DEFAULT_THREAD_JOIN_TIMEOUT)
         stderr_t.join(timeout=DEFAULT_THREAD_JOIN_TIMEOUT)
 
@@ -277,7 +281,7 @@ class NativeModule(Module):
             logger.info(
                 "Native process exited (expected)",
                 module=self._mod_label,
-                pid=self._process.pid,
+                pid=pid,
                 returncode=rc,
             )
             return
@@ -290,7 +294,7 @@ class NativeModule(Module):
         logger.error(
             "Native process died unexpectedly",
             module=self._mod_label,
-            pid=self._process.pid,
+            pid=pid,
             returncode=rc,
         )
 
@@ -299,7 +303,7 @@ class NativeModule(Module):
             logger.error(
                 f"Last {len(stderr_snapshot)} stderr lines from {self._mod_label}:",
                 module=self._mod_label,
-                pid=self._process.pid,
+                pid=pid,
             )
             for line in stderr_snapshot:
                 logger.error(f"  stderr| {line}", module=self._mod_label)
@@ -309,7 +313,7 @@ class NativeModule(Module):
             logger.error(
                 f"Last {len(stdout_snapshot)} stdout lines from {self._mod_label}:",
                 module=self._mod_label,
-                pid=self._process.pid,
+                pid=pid,
             )
             for line in stdout_snapshot:
                 logger.error(f"  stdout| {line}", module=self._mod_label)
@@ -319,7 +323,7 @@ class NativeModule(Module):
                 "No output captured from native process — "
                 "binary may have crashed before producing any output",
                 module=self._mod_label,
-                pid=self._process.pid,
+                pid=pid,
             )
 
         self.stop()
