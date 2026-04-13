@@ -47,7 +47,7 @@ from dimos.protocol.pubsub.spec import SubscribeAllCapable
 from dimos.utils.logging_config import setup_logger
 from dimos.visualization.rerun.init import rerun_init
 
-RERUN_GRPC_PORT = 9876
+RERUN_GRPC_PORT = 9877
 RERUN_WEB_PORT = 9090
 
 # TODO OUT visual annotations
@@ -182,6 +182,9 @@ class Config(ModuleConfig):
     # Static items logged once after start. Maps entity_path -> callable(rr) returning Archetype
     static: dict[str, Callable[[Any], Archetype]] = field(default_factory=dict)
 
+    grpc_port: int = RERUN_GRPC_PORT
+    web_port: int = RERUN_WEB_PORT
+
     # Per-entity max update rate (Hz). Entities not listed are unthrottled.
     # Use for heavy entities to prevent viewer backpressure.
     max_hz: dict[str, float] = field(default_factory=dict)
@@ -215,6 +218,7 @@ class RerunBridgeModule(Module):
 
     config: Config
 
+    # TODO this doesn't belong here, either hardcode it or put it to rerun bridge config
     GV_SCALE = 100.0  # graphviz inches to rerun screen units
     MODULE_RADIUS = 30.0
     CHANNEL_RADIUS = 20.0
@@ -308,7 +312,7 @@ class RerunBridgeModule(Module):
                 import rerun_bindings
 
                 rerun_bindings.spawn(
-                    port=RERUN_GRPC_PORT,
+                    port=self.config.grpc_port,
                     executable_name="dimos-viewer",
                     memory_limit=self.config.memory_limit,
                 )
