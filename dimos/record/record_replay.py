@@ -310,7 +310,7 @@ class RecordReplay:
                         for path, archetype in rerun_data:
                             rec.log(path, archetype)
                     else:
-                        rec.log(entity_path, rerun_data)
+                        rec.log(entity_path, rerun_data)  # type: ignore[arg-type]
 
             try:
                 next_obs = next(it)

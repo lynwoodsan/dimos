@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import field
 from functools import lru_cache
 import subprocess
@@ -100,7 +100,7 @@ logger = setup_logger()
 BlueprintFactory: TypeAlias = Callable[[], "Blueprint"]
 
 # to_rerun() can return a single archetype or a list of (entity_path, archetype) tuples
-RerunMulti: TypeAlias = Sequence[tuple[str, Archetype]]
+RerunMulti: TypeAlias = list[tuple[str, Archetype]]
 RerunData: TypeAlias = "Archetype | RerunMulti"
 
 
