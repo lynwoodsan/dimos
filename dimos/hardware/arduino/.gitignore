@@ -1,0 +1,9 @@
+# Nix build output symlinks
+result
+result-*
+
+# Auto-generated Arduino header (written by ArduinoModule.build())
+examples/*/sketch/dimos_arduino.h
+
+# Arduino sketch build artifacts
+examples/*/sketch/build/
