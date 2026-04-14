@@ -27,22 +27,23 @@ from pathlib import Path
 import psutil
 
 SCRIPT_DIR = Path(__file__).parent
-# go2_cpu → autoresearch → myprojects → <repo root>
-REPO_ROOT = SCRIPT_DIR.parents[2]
+# autoresearch → <repo root>
+REPO_ROOT = SCRIPT_DIR.parents[0]
 BASELINE_PATH = SCRIPT_DIR / "baseline_record.json"
 PROFILE_PATH = SCRIPT_DIR / "profile_output.txt"
 PROF_PATH = SCRIPT_DIR / "profile.prof"
 RESULTS_DIR = SCRIPT_DIR / "results"
 
 BASE_REPLAY_CMD = [
-    "uv", "run", "dimos",
+    "test-venv/bin/dimos",
     "--replay",
     "--viewer=none",
+    "--exit-on-eof",
     "--replay-dir=unitree_go2_bigoffice",
-    "run", "unitree-go2",
+    "run", "unitree-go2-basic",
 ]
 
-DEFAULT_TIMEOUT = 300  # 5 minutes
+DEFAULT_TIMEOUT = 180  # 3 minutes — EOF runs are short; this is a safety cap
 
 
 @dataclass

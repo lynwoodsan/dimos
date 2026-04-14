@@ -81,7 +81,7 @@ Work around them, don't exploit them:
    `py-spy` is on PATH. For real profiling:
    `py-spy record -o profile.svg -d 60 -- test-venv/bin/dimos --replay \
      --viewer=none --exit-on-eof --replay-dir=unitree_go2_bigoffice \
-     run unitree-go2`
+     run unitree-go2-basic`
 
 ## Output
 

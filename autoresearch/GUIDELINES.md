@@ -47,17 +47,22 @@ State as of this doc — update if DimOS adds/renames flags.
 ```bash
 test-venv/bin/dimos --replay --viewer=none --exit-on-eof \
     --replay-dir=unitree_go2_bigoffice \
-    run unitree-go2
+    run unitree-go2-basic
 ```
+
+Target the **basic** blueprint (`unitree-go2-basic`), not the smart one
+(`unitree-go2`). The smart blueprint adds VoxelGridMapper, CostMapper,
+ReplanningAStarPlanner, WavefrontFrontierExplorer, PatrollingModule — each
+adds CPU noise unrelated to the replay pipeline we're optimizing, and
+PatrollingModule also has a graceful-stop bug that inflates shutdown wall
+time by 5s. Basic is the minimum that exercises the LCM / RPC / replay
+stack.
 
 This runs one full replay pass and exits cleanly with `user+sys` reflecting
 CPU-per-fixed-workload rather than CPU-per-wall-second.
 
 ## Known rough edges (as of current dev)
 
-- `PatrollingModule` doesn't respond to the graceful stop signal within 5s;
-  gets force-terminated. Non-fatal for benchmarking but adds ~5s to shutdown
-  wall time. Subtract from wall measurements if tight.
 - `stop_timer` attribute error on `ReplayConnection.stop()` — patched via
   a no-op `stop()` override at
   [dimos/robot/unitree/go2/connection.py:142](dimos/robot/unitree/go2/connection.py#L142).
