@@ -58,13 +58,14 @@ CPU-per-fixed-workload rather than CPU-per-wall-second.
 - `PatrollingModule` doesn't respond to the graceful stop signal within 5s;
   gets force-terminated. Non-fatal for benchmarking but adds ~5s to shutdown
   wall time. Subtract from wall measurements if tight.
-- `stop_timer` attribute error on `ReplayConnection.stop()` — patched.
-  If you see it return, means the patch wasn't applied.
+- `stop_timer` attribute error on `ReplayConnection.stop()` — patched via
+  a no-op `stop()` override at
+  [dimos/robot/unitree/go2/connection.py:142](dimos/robot/unitree/go2/connection.py#L142).
+  If the error reappears in a run log, that patch was reverted.
 
 ## What's still missing for a real autoresearch harness
 
-From [go2_cpu/autoresearch_go2_design.md](go2_cpu/autoresearch_go2_design.md)
-§6, in priority order:
+In priority order:
 
 1. Pipeline recorder + `baseline_record.json` diff → real validation
    (currently stubbed `PASS`).
