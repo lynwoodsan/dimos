@@ -175,6 +175,7 @@ ENABLE_SKIP_SENSOR_PUBLISH = True
 # During replay these are no-ops but sleep(3) delays TTFM.
 # Controlled via env var DIMOS_SKIP_ROBOT_INIT=1.
 ENABLE_SKIP_ROBOT_INIT = True
+ENABLE_SKIP_CMDVEL_SUB = True
 
 
 # ------------------------------------------------------------------
@@ -254,6 +255,9 @@ def apply() -> dict:
 
     if ENABLE_SKIP_ROBOT_INIT:
         env["DIMOS_SKIP_ROBOT_INIT"] = "1"
+
+    if ENABLE_SKIP_CMDVEL_SUB:
+        env["DIMOS_SKIP_CMDVEL_SUB"] = "1"
 
     if ENABLE_REPLAY_SPEED:
         env["DIMOS_REPLAY_SPEED"] = str(REPLAY_SPEED)

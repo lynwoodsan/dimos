@@ -311,7 +311,8 @@ class GO2Connection(Module, Camera, Pointcloud):
         self.register_disposable(lidar_stream.subscribe(_lidar_sub))
         self.register_disposable(odom_stream.subscribe(self._publish_tf))
         self.register_disposable(video_stream.subscribe(onimage))
-        self.register_disposable(Disposable(self.cmd_vel.subscribe(self.move)))
+        if _os.environ.get("DIMOS_SKIP_CMDVEL_SUB") != "1":
+            self.register_disposable(Disposable(self.cmd_vel.subscribe(self.move)))
 
         if _os.environ.get("DIMOS_CAMERA_INFO_MODE") == "once":
             self.publish_camera_info()
