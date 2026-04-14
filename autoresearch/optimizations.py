@@ -106,8 +106,8 @@ OPENBLAS_NUM_THREADS = 1
 # Source: dimos/utils/logging_config.py:252 reads DIMOS_LOG_LEVEL env var.
 # Default is INFO; every transport/module logs a few lines per second.
 # WARNING or ERROR cuts stdout volume (and formatter CPU) substantially.
-ENABLE_LOG_REDUCTION = False
-LOG_LEVEL = "INFO"  # "DEBUG" | "INFO" | "WARNING" | "ERROR"
+ENABLE_LOG_REDUCTION = True
+LOG_LEVEL = "WARNING"  # "DEBUG" | "INFO" | "WARNING" | "ERROR"
 
 
 # ------------------------------------------------------------------
