@@ -67,6 +67,10 @@ class SkillInfo:
 
 _LAZY_ASYNCIO = os.environ.get("DIMOS_LAZY_ASYNCIO") == "1"
 
+if os.environ.get("DIMOS_DISABLE_GC") == "1":
+    import gc as _gc
+    _gc.disable()
+
 
 def get_loop() -> tuple[asyncio.AbstractEventLoop, threading.Thread | None]:
     try:

@@ -176,6 +176,7 @@ ENABLE_SKIP_SENSOR_PUBLISH = True
 # Controlled via env var DIMOS_SKIP_ROBOT_INIT=1.
 ENABLE_SKIP_ROBOT_INIT = True
 ENABLE_SKIP_CMDVEL_SUB = True
+ENABLE_DISABLE_GC = True
 
 
 # ------------------------------------------------------------------
@@ -258,6 +259,9 @@ def apply() -> dict:
 
     if ENABLE_SKIP_CMDVEL_SUB:
         env["DIMOS_SKIP_CMDVEL_SUB"] = "1"
+
+    if ENABLE_DISABLE_GC:
+        env["DIMOS_DISABLE_GC"] = "1"
 
     if ENABLE_REPLAY_SPEED:
         env["DIMOS_REPLAY_SPEED"] = str(REPLAY_SPEED)
