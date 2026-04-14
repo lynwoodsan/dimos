@@ -52,6 +52,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from typing import IO, Any
 
 from pydantic import Field
@@ -86,6 +87,10 @@ class NativeModuleConfig(ModuleConfig):
     shutdown_timeout: float = DEFAULT_THREAD_JOIN_TIMEOUT
     log_format: LogFormat = LogFormat.TEXT
     rebuild_on_change: list[PathEntry] | None = None
+    # When True, always invoke ``build_command`` on start, bypassing the
+    # ``rebuild_on_change`` check.  Useful with nix-style builds that are
+    # cheap no-ops when nothing has changed (nix decides via its own cache).
+    should_rebuild: bool = False
 
     # Override in subclasses to exclude fields from CLI arg generation
     cli_exclude: frozenset[str] = frozenset()
@@ -397,14 +402,17 @@ class NativeModule(Module):
         # Check if rebuild needed due to source changes. We call did_change
         # even when the exe is missing so the cache gets seeded on the first
         # build — no separate seed step needed afterwards.
-        needs_rebuild = self.config.should_rebuild or (self.config.rebuild_on_change and did_change(
-            self._build_cache_name(),
-            self.config.rebuild_on_change,
-            cwd=self.config.cwd,
-            extra_hash=self.config.build_command,
-        ))
+        needs_rebuild = self.config.should_rebuild or (
+            self.config.rebuild_on_change
+            and did_change(
+                self._build_cache_name(),
+                self.config.rebuild_on_change,
+                cwd=self.config.cwd,
+                extra_hash=self.config.build_command,
+            )
+        )
         logger.info("Source files changed, triggering rebuild", executable=str(exe))
-        
+
         if not needs_rebuild and exe.exists():
             return
 
@@ -415,18 +423,21 @@ class NativeModule(Module):
             )
 
         # Clear the old executable before rebuilding so a failed build can't
-        # leave us accidentally running a stale binary. For nix builds, ``exe``
-        # (e.g. "result") is a symlink into the read-only /nix/store — unlink()
-        # removes the symlink itself, not the store contents, and `nix build -o`
-        # will recreate it on success.
-        if exe.is_symlink() or exe.exists():
-            exe.unlink(missing_ok=True)
+        # leave us accidentally running a stale binary.
+        #
+        # Note: deletion isn't a straightforward rm -rf.
+        # For nix builds, the exe lives at something like ``cpp/result/bin/mid360``
+        # where ``result`` is a symlink into the read-only /nix/store.
+        # Trying to delete the executable itself will cause a permission error
+        # We have to walk up to the `result` dir and then unlink that
+        _clear_nix_executable(exe, Path(self.config.cwd) if self.config.cwd else None)
 
         logger.info(
             "Rebuilding" if needs_rebuild else "Executable not found, building",
             executable=str(exe),
             build_command=self.config.build_command,
         )
+        build_start = time.perf_counter()
         proc = subprocess.Popen(
             self.config.build_command,
             shell=True,
@@ -436,6 +447,7 @@ class NativeModule(Module):
             stderr=subprocess.PIPE,
         )
         stdout, stderr = proc.communicate()
+        build_elapsed = time.perf_counter() - build_start
 
         stdout_lines = stdout.decode("utf-8", errors="replace").splitlines()
         stderr_lines = stderr.decode("utf-8", errors="replace").splitlines()
@@ -452,7 +464,7 @@ class NativeModule(Module):
             tail = [l for l in stderr_lines if l.strip()][-20:]
             tail_str = "\n".join(tail) if tail else "(no stderr output)"
             raise RuntimeError(
-                f"[{self._mod_label}] Build command failed "
+                f"[{self._mod_label}] Build command failed after {build_elapsed:.2f}s "
                 f"(exit {proc.returncode}): {self.config.build_command}\n"
                 f"--- last stderr ---\n{tail_str}"
             )
@@ -460,6 +472,13 @@ class NativeModule(Module):
             raise FileNotFoundError(
                 f"[{self._mod_label}] Build command succeeded but executable still not found: {exe}"
             )
+
+        logger.info(
+            "Build command completed",
+            module=self._mod_label,
+            executable=str(exe),
+            duration_sec=round(build_elapsed, 3),
+        )
 
     def _collect_topics(self) -> dict[str, str]:
         """Extract LCM topic strings from blueprint-assigned stream transports."""
@@ -475,6 +494,33 @@ class NativeModule(Module):
             if topic is not None:
                 topics[name] = str(topic)
         return topics
+
+
+def _clear_nix_executable(exe: Path, cwd: Path | None) -> None:
+    """Remove the old exe (or its nix ``result``-style symlink ancestor).
+
+    Walks from *exe* upward, bounded by *cwd*, looking for the innermost
+    symlinked ancestor. If one is found, it's unlinked. Otherwise, if the
+    exe itself exists as a regular file, it's unlinked.
+    """
+    found_symlink: Path | None = None
+    candidate: Path = exe
+    while True:
+        # Don't ever unlink the cwd itself, even if it happens to be a symlink.
+        if cwd is not None and candidate == cwd:
+            break
+        if candidate.is_symlink():
+            found_symlink = candidate
+            break
+        parent = candidate.parent
+        if parent == candidate:  # hit filesystem root
+            break
+        candidate = parent
+
+    if found_symlink is not None:
+        found_symlink.unlink(missing_ok=True)
+    elif exe.exists():
+        exe.unlink(missing_ok=True)
 
 
 __all__ = [
