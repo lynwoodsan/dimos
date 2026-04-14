@@ -15,7 +15,7 @@
 
 """Shared visualization module factory for all robot blueprints."""
 
-from typing import Any
+from typing import Any, get_args
 
 from dimos.core.coordination.blueprints import Blueprint, autoconnect
 from dimos.visualization.constants import ViewerBackend
@@ -83,7 +83,5 @@ def vis_module(
         case "none":
             return autoconnect(WebsocketVisModule.blueprint())
         case _:
-            raise ValueError(
-                f"Unknown viewer_backend {viewer_backend!r}. "
-                f"Expected one of: rerun, rerun-web, rerun-connect, foxglove, none"
-            )
+            valid = ", ".join(get_args(ViewerBackend))
+            raise ValueError(f"Unknown viewer_backend {viewer_backend!r}. Expected one of: {valid}")

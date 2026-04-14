@@ -289,7 +289,7 @@ xarm_perception_agent = autoconnect(
 
 from dimos.robot.catalog.ufactory import XARM7_SIM_PATH
 from dimos.simulation.engines.mujoco_sim_module import MujocoSimModule
-from dimos.visualization.rerun.bridge import RerunBridgeModule, _resolve_viewer_mode
+from dimos.visualization.rerun.bridge import RerunBridgeModule
 
 _xarm7_sim_cfg = _catalog_xarm7(
     name="arm",
@@ -323,7 +323,7 @@ xarm_perception_sim = autoconnect(
         hardware=[_xarm7_sim_cfg.to_hardware_component()],
         tasks=[_xarm7_sim_cfg.to_task_config()],
     ),
-    RerunBridgeModule.blueprint(viewer_mode=_resolve_viewer_mode()),
+    RerunBridgeModule.blueprint(),
 ).transports(
     {
         ("joint_state", JointState): LCMTransport("/coordinator/joint_state", JointState),

@@ -174,7 +174,7 @@ class WavefrontFrontierExplorer(Module):
 
         if self.stop_movement.transport is not None:
             unsub = self.stop_movement.subscribe(self._on_stop_movement)
-            self._disposables.add(Disposable(unsub))
+            self.register_disposable(Disposable(unsub))
 
     @rpc
     def stop(self) -> None:

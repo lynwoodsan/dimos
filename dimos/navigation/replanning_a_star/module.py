@@ -21,9 +21,6 @@ from reactivex.disposable import Disposable
 from dimos.core.core import rpc
 from dimos.core.module import Module
 from dimos.core.stream import In, Out
-from dimos.utils.logging_config import setup_logger
-
-logger = setup_logger()
 from dimos.msgs.geometry_msgs.PointStamped import PointStamped
 from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
 from dimos.msgs.geometry_msgs.Twist import Twist
@@ -31,6 +28,9 @@ from dimos.msgs.nav_msgs.OccupancyGrid import OccupancyGrid
 from dimos.msgs.nav_msgs.Path import Path
 from dimos.navigation.base import NavigationInterface, NavigationState
 from dimos.navigation.replanning_a_star.global_planner import GlobalPlanner
+from dimos.utils.logging_config import setup_logger
+
+logger = setup_logger()
 
 
 class ReplanningAStarPlanner(Module, NavigationInterface):
@@ -77,11 +77,13 @@ class ReplanningAStarPlanner(Module, NavigationInterface):
         )
 
         if self.stop_movement.transport is not None:
-            register_disposable(Disposable(self.stop_movement.subscribe(self._on_stop_movement)))
+            self.register_disposable(
+                Disposable(self.stop_movement.subscribe(self._on_stop_movement))
+            )
 
-        register_disposable(self._planner.path.subscribe(self.path.publish))
+        self.register_disposable(self._planner.path.subscribe(self.path.publish))
 
-        register_disposable(self._planner.cmd_vel.subscribe(self.nav_cmd_vel.publish))
+        self.register_disposable(self._planner.cmd_vel.subscribe(self.nav_cmd_vel.publish))
 
         self.register_disposable(self._planner.goal_reached.subscribe(self.goal_reached.publish))
 

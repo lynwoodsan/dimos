@@ -157,9 +157,10 @@ class WebsocketVisModule(Module):
         self._uvicorn_server_thread = threading.Thread(target=self._run_uvicorn_server, daemon=True)
         self._uvicorn_server_thread.start()
 
-        # Auto-open browser only for rerun-web (dashboard with Rerun iframe + command center)
-        # For rerun and foxglove, users access the command center manually if needed
-        if self.config.g.viewer == "rerun-web":  # type: ignore[comparison-overlap]
+        # Auto-open browser only when the rerun web viewer is enabled (dashboard
+        # embeds the Rerun iframe + command center). For native rerun or
+        # foxglove, users access the command center manually if needed.
+        if self.config.g.viewer == "rerun" and self.config.g.rerun_web:
             url = f"http://localhost:{self.config.port}/"
             logger.info(f"Dimensional Command Center: {url}")
 
@@ -235,11 +236,11 @@ class WebsocketVisModule(Module):
 
         async def serve_index(request):  # type: ignore[no-untyped-def]
             """Serve appropriate HTML based on viewer mode."""
-            # If running native Rerun, redirect to standalone command center
-            if self.config.g.viewer != "rerun-web":  # type: ignore[comparison-overlap]
+            # Serve the full dashboard (with Rerun iframe) only when the rerun
+            # web server is enabled; otherwise redirect to the standalone
+            # command center.
+            if not (self.config.g.viewer == "rerun" and self.config.g.rerun_web):
                 return RedirectResponse(url="/command-center")
-
-            # Otherwise serve full dashboard with Rerun iframe
             return FileResponse(_DASHBOARD_HTML, media_type="text/html")
 
         async def serve_command_center(request):  # type: ignore[no-untyped-def]

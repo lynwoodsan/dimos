@@ -21,7 +21,6 @@ from typing import Any, Generic, TypeVar, overload
 import uuid
 
 
-
 def get_local_ips() -> list[tuple[str, str]]:
     """Return ``(ip, interface_name)`` for every non-loopback IPv4 address.
 

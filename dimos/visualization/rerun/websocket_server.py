@@ -35,7 +35,7 @@ import logging
 import threading
 from typing import Any
 
-from dimos_lcm.std_msgs import Bool  # type: ignore[import-untyped]
+from pydantic import BaseModel
 import websockets
 
 from dimos.core.core import rpc
@@ -49,15 +49,42 @@ from dimos.utils.logging_config import setup_logger
 logger = setup_logger()
 
 
+def _handshake_noise_filter(record: logging.LogRecord) -> bool:
+    """Drop noisy "opening handshake failed" records from port scanners etc."""
+    msg = record.getMessage()
+    return not ("opening handshake failed" in msg or "did not receive a valid HTTP request" in msg)
+
+
+class CmdVelScaling(BaseModel):
+    """Per-dimension multipliers applied to outgoing teleop cmd_vel twists.
+
+    ``x``/``y``/``z`` scale ``linear.x``/``linear.y``/``linear.z``.
+    ``roll``/``pitch``/``yaw`` scale ``angular.x``/``angular.y``/``angular.z``
+    (ROS convention: roll around X, pitch around Y, yaw around Z).
+
+    Defaults are all ``1.0`` — identity passthrough. Set to ``0.0`` to
+    lock out a dimension entirely, or to a fraction (e.g. ``0.3``) to
+    cap the operator's effective speed on that axis.
+    """
+
+    x: float = 1.0
+    y: float = 1.0
+    z: float = 1.0
+    roll: float = 1.0
+    pitch: float = 1.0
+    yaw: float = 1.0
+
+
 class Config(ModuleConfig):
     # Intentionally binds 0.0.0.0 by default so the viewer can connect from
     # any machine on the network (the typical robot deployment scenario).
     host: str = "0.0.0.0"
     port: int = 3030
     start_timeout: float = 10.0  # seconds to wait for the server to bind
+    cmd_vel_scaling: CmdVelScaling = CmdVelScaling()
 
 
-class RerunWebSocketServer(Module[Config]):
+class RerunWebSocketServer(Module):
     """Receives dimos-viewer WebSocket events and publishes them as DimOS streams.
 
     The viewer connects to this module (not the other way around) when running
@@ -68,18 +95,18 @@ class RerunWebSocketServer(Module[Config]):
     Outputs:
         clicked_point: 3-D world-space point from the most recent viewer click.
         tele_cmd_vel: Twist velocity commands from keyboard teleop, including stop events.
-        stop_movement: Published when teleop starts — signals nav to cancel the active goal.
+
+    Note: ``stop_movement`` is owned by ``CmdVelMux`` — it will fire that
+    signal when it sees the first teleop twist arrive here.
     """
 
-    default_config = Config
+    config: Config
 
     clicked_point: Out[PointStamped]
     tele_cmd_vel: Out[Twist]
-    stop_movement: Out[Bool]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._teleop_clients: set[int] = set()  # ids of clients currently in teleop
         self._ws_loop: asyncio.AbstractEventLoop | None = None
         self._server_thread: threading.Thread | None = None
         self._stop_event: asyncio.Event | None = None
@@ -106,6 +133,11 @@ class RerunWebSocketServer(Module[Config]):
             and self._stop_event is not None
         ):
             self._ws_loop.call_soon_threadsafe(self._stop_event.set)
+        # Join the server thread so tests that check for thread leaks pass,
+        # and so a subsequent start() doesn't race with a still-running
+        # previous instance on the same port.
+        if self._server_thread is not None and self._server_thread.is_alive():
+            self._server_thread.join(timeout=self.config.start_timeout)
         super().stop()
 
     def _log_connect_hints(self) -> None:
@@ -151,11 +183,11 @@ class RerunWebSocketServer(Module[Config]):
 
         self._stop_event = asyncio.Event()
 
-        # Suppress noisy tracebacks from non-WebSocket connections (e.g. port
-        # scanners, health checks, or accidental gRPC probes).  The library
-        # logs failed handshakes at ERROR level, so we need CRITICAL to hide them.
+        # Filter out handshake failures from port scanners / gRPC probes /
+        # health checks — they log at ERROR level with the message
+        # "opening handshake failed" and aren't actionable.
         ws_logger = logging.getLogger("websockets.server")
-        ws_logger.setLevel(logging.CRITICAL)
+        ws_logger.addFilter(_handshake_noise_filter)
 
         async with ws_server.serve(
             self._handle_client,
@@ -175,17 +207,14 @@ class RerunWebSocketServer(Module[Config]):
             await websocket.close(1008, "Not Found")
             return
         addr = websocket.remote_address
-        client_id = id(websocket)
         logger.info(f"RerunWebSocketServer: viewer connected from {addr}")
         try:
             async for raw in websocket:
-                self._dispatch(raw, client_id)
+                self._dispatch(raw)
         except websockets.ConnectionClosed as exc:
             logger.debug(f"RerunWebSocketServer: client {addr} disconnected ({exc})")
-        finally:
-            self._teleop_clients.discard(client_id)
 
-    def _dispatch(self, raw: str | bytes, client_id: int) -> None:
+    def _dispatch(self, raw: str | bytes) -> None:
         try:
             msg = json.loads(raw)
         except json.JSONDecodeError:
@@ -210,27 +239,24 @@ class RerunWebSocketServer(Module[Config]):
             self.clicked_point.publish(pt)
 
         elif msg_type == "twist":
+            s = self.config.cmd_vel_scaling
             twist = Twist(
                 linear=Vector3(
-                    float(msg.get("linear_x", 0)),
-                    float(msg.get("linear_y", 0)),
-                    float(msg.get("linear_z", 0)),
+                    float(msg.get("linear_x", 0)) * s.x,
+                    float(msg.get("linear_y", 0)) * s.y,
+                    float(msg.get("linear_z", 0)) * s.z,
                 ),
                 angular=Vector3(
-                    float(msg.get("angular_x", 0)),
-                    float(msg.get("angular_y", 0)),
-                    float(msg.get("angular_z", 0)),
+                    float(msg.get("angular_x", 0)) * s.roll,
+                    float(msg.get("angular_y", 0)) * s.pitch,
+                    float(msg.get("angular_z", 0)) * s.yaw,
                 ),
             )
             logger.debug(f"RerunWebSocketServer: twist → {twist}")
-            if not self._teleop_clients:
-                self.stop_movement.publish(Bool(data=True))
-            self._teleop_clients.add(client_id)
             self.tele_cmd_vel.publish(twist)
 
         elif msg_type == "stop":
             logger.debug("RerunWebSocketServer: stop")
-            self._teleop_clients.discard(client_id)
             self.tele_cmd_vel.publish(Twist.zero())
 
         elif msg_type == "heartbeat":

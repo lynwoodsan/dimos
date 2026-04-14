@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import field
-from functools import lru_cache
 import subprocess
 import time
 from typing import (
@@ -207,22 +206,31 @@ class RerunBridgeModule(Module):
     """
 
     config: Config
-    _last_log: dict[str, float] = {}
+    _last_log: dict[str, float]
 
     # Graphviz layout scale and node radii for blueprint graph
     GV_SCALE = 100.0
     MODULE_RADIUS = 20.0
     CHANNEL_RADIUS = 12.0
 
-    @lru_cache(maxsize=256)
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._last_log = {}
+        self._override_cache: dict[str, Callable[[Any], RerunData | None]] = {}
+
     def _visual_override_for_entity_path(
         self, entity_path: str
     ) -> Callable[[Any], RerunData | None]:
         """Return a composed visual override for the entity path.
 
         Chains matching overrides from config, ending with final_convert
-        which handles .to_rerun() or passes through Archetypes.
+        which handles .to_rerun() or passes through Archetypes. Cached per
+        instance (not via ``lru_cache`` on a method, which would leak ``self``).
         """
+        cached = self._override_cache.get(entity_path)
+        if cached is not None:
+            return cached
+
         # find all matching converters for this entity path
         matches = [
             fn
@@ -232,7 +240,9 @@ class RerunBridgeModule(Module):
 
         # None means "suppress this topic entirely"
         if any(fn is None for fn in matches):
-            return lambda msg: None
+            result: Callable[[Any], RerunData | None] = lambda msg: None  # noqa: E731
+            self._override_cache[entity_path] = result
+            return result
 
         # final step (ensures we return Archetype or None)
         from rerun._baseclasses import Archetype
@@ -247,7 +257,11 @@ class RerunBridgeModule(Module):
             return None
 
         # compose all converters
-        return lambda msg: pipe(msg, *matches, final_convert)
+        composed: Callable[[Any], RerunData | None] = lambda msg: pipe(  # noqa: E731
+            msg, *matches, final_convert
+        )
+        self._override_cache[entity_path] = composed
+        return composed
 
     def _get_entity_path(self, topic: Any) -> str:
         """Convert a topic to a Rerun entity path."""
@@ -298,7 +312,7 @@ class RerunBridgeModule(Module):
         logger.info("Rerun bridge starting")
 
         # Build throttle lookup: entity_path → min interval in seconds
-        self._last_log: dict[str, float] = {}
+        self._last_log = {}
         self._min_intervals: dict[str, float] = {
             entity: 1.0 / hz for entity, hz in self.config.max_hz.items() if hz > 0
         }
@@ -330,13 +344,13 @@ class RerunBridgeModule(Module):
         # Check open arg
         if self.config.rerun_open not in get_args(RerunOpenOption):
             logger.warning(
-                f"rerun_open was {self.config.rerun_open} which is not one of {get_args(RerunOpenOption)}",
-                exc_info=True,
+                f"rerun_open was {self.config.rerun_open} which is not one of "
+                f"{get_args(RerunOpenOption)}"
             )
 
         # launch native viewer if desired
         spawned = False
-        if self.config.rerun_open == "native" or self.config.rerun_open == "both":
+        if self.config.rerun_open in ("native", "both"):
             try:
                 import rerun_bindings
 
@@ -506,5 +520,5 @@ class RerunBridgeModule(Module):
 
     @rpc
     def stop(self) -> None:
-        self._visual_override_for_entity_path.cache_clear()
+        self._override_cache.clear()
         super().stop()
