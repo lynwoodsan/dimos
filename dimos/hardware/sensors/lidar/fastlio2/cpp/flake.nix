@@ -48,10 +48,13 @@
             # tiledb: darwin-only patch `generate_embedded_data_header.patch`
             # targets a file that doesn't exist in tiledb 2.30.0 (the
             # upstream code path was reworked and `file(ARCHIVE_CREATE ...)`
-            # is no longer used anywhere in the source).  Drop the stale
-            # patch.
-            tiledb = prev.tiledb.overrideAttrs (_old: {
-              patches = [ ];
+            # is no longer used anywhere in the source).  Filter out only
+            # that patch — don't drop everything, in case nixpkgs adds an
+            # unrelated security patch in a future bump.
+            tiledb = prev.tiledb.overrideAttrs (old: {
+              patches = builtins.filter
+                (p: !(prev.lib.hasSuffix "generate_embedded_data_header.patch" (toString p)))
+                (old.patches or [ ]);
             });
           };
         pkgs = import nixpkgs {

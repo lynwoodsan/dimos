@@ -83,7 +83,11 @@ def _fmt_row(label: str, stats: dict[str, float] | None, extra: str = "") -> str
 
 def bench_did_change(module: object) -> dict[str, float]:
     """Benchmark one warm + STEADY_RUNS did_change calls."""
-    cache_name = module._build_cache_name()  # type: ignore[attr-defined]
+    # Mirrors the cache-name computation inlined into NativeModule._maybe_build.
+    import inspect
+
+    source_file = Path(inspect.getfile(type(module))).resolve()
+    cache_name = f"native_{type(module).__name__}_{source_file}"
     cfg = module.config  # type: ignore[attr-defined]
 
     def check() -> None:

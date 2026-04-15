@@ -57,8 +57,29 @@ from pydantic import Field
 from dimos.constants import DEFAULT_THREAD_JOIN_TIMEOUT
 from dimos.core.core import rpc
 from dimos.core.module import Module, ModuleConfig
-from dimos.utils.change_detect import PathEntry, did_change
+from dimos.utils.change_detect import PathEntry, did_change, update_cache
 from dimos.utils.logging_config import setup_logger
+
+# ctypes is only needed for the Linux child-preexec helper below.  Hoisting
+# the import out of the inner function avoids re-importing on every start().
+if sys.platform.startswith("linux"):
+    import ctypes
+
+    _LIBC = ctypes.CDLL("libc.so.6", use_errno=True)
+    _PR_SET_PDEATHSIG = 1
+
+    def _child_preexec_linux() -> None:
+        """Kill child when parent dies. Linux only.
+
+        Runs in the child between fork() and exec().  Async-signal-safe
+        operations only — the call into libc.prctl is fine, but anything
+        that touches the threading runtime (allocating, importing) is not.
+        """
+        if _LIBC.prctl(_PR_SET_PDEATHSIG, signal.SIGTERM) != 0:
+            err = ctypes.get_errno()
+            raise OSError(err, f"prctl(PR_SET_PDEATHSIG) failed: {os.strerror(err)}")
+else:
+    _child_preexec_linux = None  # type: ignore[assignment]
 
 if sys.version_info < (3, 13):
     from typing_extensions import TypeVar
@@ -140,6 +161,7 @@ class NativeModule(Module):
     _process: subprocess.Popen[bytes] | None = None
     _watchdog: threading.Thread | None = None
     _stopping: bool = False
+    _stop_lock: threading.Lock
 
     @functools.cached_property
     def _mod_label(self) -> str:
@@ -149,6 +171,7 @@ class NativeModule(Module):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self._stop_lock = threading.Lock()
 
         # Resolve relative cwd and executable against the subclass's source file.
         if self.config.cwd is not None and not Path(self.config.cwd).is_absolute():
@@ -187,21 +210,11 @@ class NativeModule(Module):
             cwd=cwd,
         )
 
-        # fix bad-close and leaked process issues.
         # start_new_session=True is the thread-safe way to isolate the child
         # from terminal signals (SIGINT from the tty).  preexec_fn is unsafe
         # in the presence of threads (subprocess docs), so we only use it on
-        # Linux where prctl(PR_SET_PDEATHSIG) has no alternative.
-        def _child_preexec_linux() -> None:
-            """Kill child when parent dies. Linux only."""
-            import ctypes
-
-            PR_SET_PDEATHSIG = 1
-            libc = ctypes.CDLL("libc.so.6", use_errno=True)
-            if libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM) != 0:
-                err = ctypes.get_errno()
-                raise OSError(err, f"prctl(PR_SET_PDEATHSIG) failed: {os.strerror(err)}")
-
+        # Linux where prctl(PR_SET_PDEATHSIG) has no alternative — see
+        # _child_preexec_linux defined at module scope.
         self._process = subprocess.Popen(
             cmd,
             env=env,
@@ -209,7 +222,7 @@ class NativeModule(Module):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
-            preexec_fn=_child_preexec_linux if sys.platform.startswith("linux") else None,
+            preexec_fn=_child_preexec_linux,
         )
         logger.info(
             "Native process started",
@@ -217,38 +230,57 @@ class NativeModule(Module):
             pid=self._process.pid,
         )
 
-        self._stopping = False
-        self._watchdog = threading.Thread(
+        watchdog = threading.Thread(
             target=self._watch_process,
             daemon=True,
             name=f"native-watchdog-{self._mod_label}",
         )
-        self._watchdog.start()
+        with self._stop_lock:
+            self._stopping = False
+            self._watchdog = watchdog
+        watchdog.start()
 
     @rpc
     def stop(self) -> None:
-        self._stopping = True
-        if self._process is not None and self._process.poll() is None:
+        # Two callers can race here: the RPC stop() and the watchdog calling
+        # self.stop() after it detects an unexpected exit.  Serialize on a
+        # per-instance lock and let the second caller no-op via the
+        # _stopping flag.  We capture the proc/watchdog refs under the lock
+        # but do the actual signal/wait/join *outside* it — joining the
+        # watchdog while holding the lock would deadlock with the watchdog's
+        # own stop() call waiting on the same lock.
+        with self._stop_lock:
+            if self._stopping:
+                return
+            self._stopping = True
+            proc = self._process
+            watchdog = self._watchdog
+
+        if proc is not None and proc.poll() is None:
             logger.info(
                 "Stopping native process",
                 module=self._mod_label,
-                pid=self._process.pid,
+                pid=proc.pid,
             )
-            self._process.send_signal(signal.SIGTERM)
+            proc.send_signal(signal.SIGTERM)
             try:
-                self._process.wait(timeout=self.config.shutdown_timeout)
+                proc.wait(timeout=self.config.shutdown_timeout)
             except subprocess.TimeoutExpired:
                 logger.warning(
                     "Native process did not exit, sending SIGKILL",
                     module=self._mod_label,
-                    pid=self._process.pid,
+                    pid=proc.pid,
                 )
-                self._process.kill()
-                self._process.wait(timeout=self.config.shutdown_timeout)
-        if self._watchdog is not None and self._watchdog is not threading.current_thread():
-            self._watchdog.join(timeout=self.config.shutdown_timeout)
-        self._watchdog = None
-        self._process = None
+                proc.kill()
+                proc.wait(timeout=self.config.shutdown_timeout)
+
+        if watchdog is not None and watchdog is not threading.current_thread():
+            watchdog.join(timeout=self.config.shutdown_timeout)
+
+        with self._stop_lock:
+            self._watchdog = None
+            self._process = None
+
         super().stop()
 
     def _watch_process(self) -> None:
@@ -260,8 +292,8 @@ class NativeModule(Module):
             return
         pid = proc.pid
 
-        stdout_t = self._start_reader(proc.stdout, "info")
-        stderr_t = self._start_reader(proc.stderr, "warning")
+        stdout_t = self._start_reader(proc.stdout, "info", pid)
+        stderr_t = self._start_reader(proc.stderr, "warning", pid)
         rc = proc.wait()
         stdout_t.join(timeout=self.config.shutdown_timeout)
         stderr_t.join(timeout=self.config.shutdown_timeout)
@@ -287,11 +319,12 @@ class NativeModule(Module):
         self,
         stream: IO[bytes] | None,
         level: str,
+        pid: int,
     ) -> threading.Thread:
         """Spawn a daemon thread that pipes a subprocess stream through the logger."""
         t = threading.Thread(
             target=self._read_log_stream,
-            args=(stream, level),
+            args=(stream, level, pid),
             daemon=True,
             name=f"native-reader-{level}-{self._mod_label}",
         )
@@ -302,6 +335,7 @@ class NativeModule(Module):
         self,
         stream: IO[bytes] | None,
         level: str,
+        pid: int,
     ) -> None:
         if stream is None:
             return
@@ -310,7 +344,10 @@ class NativeModule(Module):
             line = raw.decode("utf-8", errors="replace").rstrip()
             if not line:
                 continue
-            log_fn(line, module=self._mod_label, pid=self._process.pid if self._process else None)
+            # Use the captured pid rather than self._process.pid — stop() can
+            # null self._process out from under us between the check and the
+            # attribute read.
+            log_fn(line, module=self._mod_label, pid=pid)
         stream.close()
 
     def _maybe_build(self) -> None:
@@ -329,9 +366,9 @@ class NativeModule(Module):
                 self.config.rebuild_on_change,
                 cwd=self.config.cwd,
                 extra_hash=self.config.build_command,
+                update=False,
             )
         )
-        logger.info("Source files changed, triggering rebuild", executable=str(exe))
 
         if not needs_rebuild and exe.exists():
             return
@@ -400,6 +437,17 @@ class NativeModule(Module):
             duration_sec=round(build_elapsed, 3),
         )
 
+        # Only update the source-hash cache after a successful build, so a
+        # failed build doesn't trick the next call into thinking everything
+        # is current.
+        if self.config.rebuild_on_change:
+            update_cache(
+                cache_name,
+                self.config.rebuild_on_change,
+                cwd=self.config.cwd,
+                extra_hash=self.config.build_command,
+            )
+
     def _collect_topics(self) -> dict[str, str]:
         """Extract LCM topic strings from blueprint-assigned stream transports."""
         topics: dict[str, str] = {}
@@ -420,26 +468,42 @@ def _clear_nix_executable(exe: Path, cwd: Path | None) -> None:
     """Remove the old exe (or its nix ``result``-style symlink ancestor).
 
     Walks from *exe* upward, bounded by *cwd*, looking for the innermost
-    symlinked ancestor. If one is found, it's unlinked. Otherwise, if the
+    symlinked ancestor.  If one is found, it's unlinked.  Otherwise, if the
     exe itself exists as a regular file, it's unlinked.
+
+    *cwd* is required and acts as a safety boundary: the walk only considers
+    ancestors strictly under *cwd*, so we can never accidentally unlink
+    something like ``/usr/local`` if the exe happens to be ``/usr/local/bin/foo``
+    and ``/usr/local`` is a symlink (common on macOS with Homebrew).
     """
+    if cwd is None:
+        # No cwd → no safe upper bound for the walk, so refuse to climb.
+        # Just unlink the exe itself if it exists.
+        if exe.is_symlink() or exe.exists():
+            exe.unlink(missing_ok=True)
+        return
+
+    cwd_resolved = cwd.resolve()
     found_symlink: Path | None = None
     candidate: Path = exe
     while True:
-        # Don't ever unlink the cwd itself, even if it happens to be a symlink.
-        if cwd is not None and candidate == cwd:
+        # Stop at cwd — we never unlink the cwd itself, even if it's a symlink.
+        if candidate == cwd or candidate.resolve() == cwd_resolved:
             break
         if candidate.is_symlink():
             found_symlink = candidate
             break
         parent = candidate.parent
-        if parent == candidate:  # hit filesystem root
+        if parent == candidate:
+            # Reached filesystem root without ever passing through cwd —
+            # exe is outside cwd's tree; refuse to walk.
+            found_symlink = None
             break
         candidate = parent
 
     if found_symlink is not None:
         found_symlink.unlink(missing_ok=True)
-    elif exe.exists():
+    elif exe.is_symlink() or exe.exists():
         exe.unlink(missing_ok=True)
 
 

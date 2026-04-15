@@ -60,8 +60,15 @@ inline std::pair<int, std::string> write_sdk_config(const std::string& host_ip,
         return {-1, ""};
     }
 #else
-    // mkstemp replaces the 6 X's in place — e.g. livox_sdk_config.aB3xY9
-    char tmpl[] = "/tmp/livox_sdk_config.XXXXXX";
+    // mkstemp replaces the 6 X's in place — e.g. livox_sdk_config.aB3xY9.
+    // Honor $TMPDIR when set (sandboxed macOS apps and CI runners point
+    // it at a per-process scratch dir); fall back to /tmp.
+    const char* tmpdir = std::getenv("TMPDIR");
+    if (tmpdir == nullptr || tmpdir[0] == '\0') {
+        tmpdir = "/tmp";
+    }
+    char tmpl[256];
+    snprintf(tmpl, sizeof(tmpl), "%s/livox_sdk_config.XXXXXX", tmpdir);
     int fd = mkstemp(tmpl);
     if (fd < 0) {
         perror("mkstemp");

@@ -162,3 +162,65 @@ def test_rebuild_on_change_none_skips_check(build_env: dict[str, Path]) -> None:
         assert not marker.exists(), "Should not rebuild when rebuild_on_change is None"
     finally:
         mod.stop()
+
+
+def test_should_rebuild_true_bypasses_change_check(build_env: dict[str, Path]) -> None:
+    """``should_rebuild=True`` forces a rebuild even when ``did_change`` would skip."""
+    mod = _make_module(build_env)
+    try:
+        exe = build_env["exe"]
+        marker = build_env["marker"]
+
+        # Initial build seeds the cache so a normal rebuild would now skip.
+        mod._maybe_build()
+        assert exe.exists()
+        assert marker.exists()
+        marker.unlink()
+
+        # Sanity check: with should_rebuild=False (default), nothing changed → skip.
+        mod._maybe_build()
+        assert not marker.exists()
+
+        # Flip the bypass flag — build runs unconditionally.
+        mod.config.should_rebuild = True
+        mod._maybe_build()
+        assert marker.exists(), "should_rebuild=True must force a rebuild"
+        marker.unlink()
+
+        # And it keeps forcing on every call as long as the flag is set.
+        mod._maybe_build()
+        assert marker.exists(), "should_rebuild=True must force on every call"
+    finally:
+        mod.stop()
+
+
+def test_failed_build_does_not_mark_cache_clean(build_env: dict[str, Path]) -> None:
+    """A failed ``build_command`` must leave the cache untouched so the next call retries."""
+    src = build_env["src"]
+    exe = build_env["exe"]
+
+    # Build script that always fails after touching nothing.
+    failing = build_env["build_script"].parent / "fail.sh"
+    failing.write_text("#!/bin/sh\necho oops >&2\nexit 1\n")
+    failing.chmod(failing.stat().st_mode | stat.S_IEXEC)
+
+    mod = _RebuildModule(
+        executable=str(exe),
+        build_command=f"sh {failing}",
+        rebuild_on_change=[str(src)],
+        cwd=str(src),
+    )
+    try:
+        # First call: build fails, so the cache must NOT be updated to the
+        # current source hash. Otherwise the next call would incorrectly
+        # think "nothing changed" and early-return on a stale/missing exe.
+        with pytest.raises(RuntimeError, match="Build command failed"):
+            mod._maybe_build()
+
+        # Second call without changing sources: should still try to build
+        # (and fail again) — proving the cache wasn't poisoned by the first
+        # failure.
+        with pytest.raises(RuntimeError, match="Build command failed"):
+            mod._maybe_build()
+    finally:
+        mod.stop()
