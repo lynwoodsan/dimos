@@ -1,0 +1,13 @@
+[package]
+name = "dimos-native-module"
+version = "0.1.0"
+edition = "2021"
+description = "Rust native module SDK for dimos NativeModule framework"
+license = "Apache-2.0"
+
+[dependencies]
+dimos-lcm = { path = "/home/andrew/code/dimos-lcm/tools/rust/lcm" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+
+[dev-dependencies]
+lcm-msgs = { path = "/home/andrew/code/dimos-lcm/generated/rust_lcm_msgs" }
