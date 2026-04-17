@@ -15,11 +15,11 @@
 """Two Rust NativeModules for a simple ping-pong example.
 
 PingModule and PongModule both declare a `data` port (Twist) and a `confirm` port (Twist).
-Ping publishes to data (received by pong), and Pong published to confirm (received by ping).
+Ping publishes to data (received by pong), and Pong publishes to confirm (received by ping).
 Topics and module configs are sent through stdin to modules.
 
 Run with:
-    python dimos/native/rust/examples/rust_ping_pong.py
+    python examples/native-modules/rust_ping_pong.py
 """
 
 from __future__ import annotations
@@ -32,20 +32,20 @@ from dimos.core.native_module import NativeModule, NativeModuleConfig
 from dimos.core.stream import In, Out
 from dimos.msgs.geometry_msgs.Twist import Twist
 
-_RUST_DIR = Path(__file__).parents[1]
-_EXAMPLES = _RUST_DIR / "target" / "release" / "examples"
+_RUST_DIR = Path(__file__).parent / "rust"
+_EXAMPLES = _RUST_DIR / "target" / "release"
 
 
 class PingConfig(NativeModuleConfig):
     executable: str = str(_EXAMPLES / "native_ping")
-    build_command: str = "cargo build --examples --release"
+    build_command: str = "cargo build --release"
     cwd: str = str(_RUST_DIR)
     stdin_config: bool = True
 
 
 class PongConfig(NativeModuleConfig):
     executable: str = str(_EXAMPLES / "native_pong")
-    build_command: str = "cargo build --examples --release"
+    build_command: str = "cargo build --release"
     cwd: str = str(_RUST_DIR)
     stdin_config: bool = True
     sample_config: int = 42
