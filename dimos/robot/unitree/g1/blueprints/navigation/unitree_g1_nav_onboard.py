@@ -51,8 +51,7 @@ from dimos.robot.unitree.g1.g1_rerun import (
     g1_odometry_tf_override,
     g1_static_robot,
 )
-from dimos.visualization.rerun.bridge import RerunBridgeModule
-from dimos.visualization.rerun.websocket_server import RerunWebSocketServer
+from dimos.visualization.vis_module import vis_module
 
 unitree_g1_nav_onboard = (
     autoconnect(
